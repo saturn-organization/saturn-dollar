@@ -12,11 +12,7 @@ import {IUScc} from "src/IUScc.sol";
 contract UScc is ERC20, ERC20Burnable, Ownable2Step, ERC20Permit, IUScc {
     address public minter;
 
-    constructor(address initialOwner)
-        ERC20("UScc", "UScc")
-        Ownable(initialOwner)
-        ERC20Permit("UScc")
-    {}
+    constructor(address initialOwner) ERC20("UScc", "UScc") Ownable(initialOwner) ERC20Permit("UScc") {}
 
     function renounceOwnership() public view override onlyOwner {
         revert CantRenounceOwnership();
