@@ -2,11 +2,11 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
-import {UScc} from "../src/UScc.sol";
-import {IUScc} from "../src/IUScc.sol";
+import {USDat} from "../src/USDat.sol";
+import {IUSDat} from "../src/IUSDat.sol";
 
-contract USccTest is Test {
-    UScc public token;
+contract USDatTest is Test {
+    USDat public token;
     address public owner;
     address public minter;
     address public user1;
@@ -19,14 +19,14 @@ contract USccTest is Test {
         user2 = makeAddr("user2");
 
         vm.prank(owner);
-        token = new UScc(owner);
+        token = new USDat(owner);
     }
 
     /* ============ Constructor Tests ============ */
 
     function test_Constructor() public view {
-        assertEq(token.name(), "UScc");
-        assertEq(token.symbol(), "UScc");
+        assertEq(token.name(), "USDat");
+        assertEq(token.symbol(), "USDat");
         assertEq(token.decimals(), 18);
         assertEq(token.owner(), owner);
         assertEq(token.minter(), address(0));
@@ -37,7 +37,7 @@ contract USccTest is Test {
     function test_SetMinter() public {
         vm.prank(owner);
         vm.expectEmit(true, true, false, true);
-        emit IUScc.MinterUpdated(minter, address(0));
+        emit IUSDat.MinterUpdated(minter, address(0));
         token.setMinter(minter);
 
         assertEq(token.minter(), minter);
@@ -57,7 +57,7 @@ contract USccTest is Test {
         // Then set to zero address
         vm.prank(owner);
         vm.expectEmit(true, true, false, true);
-        emit IUScc.MinterUpdated(address(0), minter);
+        emit IUSDat.MinterUpdated(address(0), minter);
         token.setMinter(address(0));
 
         assertEq(token.minter(), address(0));
@@ -81,13 +81,13 @@ contract USccTest is Test {
         token.setMinter(minter);
 
         vm.prank(user1);
-        vm.expectRevert(IUScc.OnlyMinter.selector);
+        vm.expectRevert(IUSDat.OnlyMinter.selector);
         token.mint(user1, 1000e18);
     }
 
     function test_RevertWhen_MinterNotSet() public {
         vm.prank(user1);
-        vm.expectRevert(IUScc.OnlyMinter.selector);
+        vm.expectRevert(IUSDat.OnlyMinter.selector);
         token.mint(user1, 1000e18);
     }
 
@@ -142,7 +142,7 @@ contract USccTest is Test {
 
     function test_RevertWhen_RenounceOwnership() public {
         vm.prank(owner);
-        vm.expectRevert(IUScc.CantRenounceOwnership.selector);
+        vm.expectRevert(IUSDat.CantRenounceOwnership.selector);
         token.renounceOwnership();
 
         assertEq(token.owner(), owner);
