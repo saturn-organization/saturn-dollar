@@ -2,14 +2,14 @@
 pragma solidity ^0.8.27;
 
 import {Script} from "forge-std/Script.sol";
-import {UScc} from "../src/UScc.sol";
+import {USDat} from "../src/USDat.sol";
 
-contract USccScript is Script {
+contract USDatScript is Script {
     function run() public {
         address initialOwner = vm.envAddress("INITIAL_OWNER"); // Read from .env
 
         vm.startBroadcast();
-        new UScc(initialOwner);
+        new USDat(initialOwner);
         vm.stopBroadcast();
     }
 }

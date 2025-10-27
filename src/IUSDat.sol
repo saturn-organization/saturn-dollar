@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-interface IUScc {
+interface IUSDat {
     error CantRenounceOwnership();
     error OnlyMinter();
 

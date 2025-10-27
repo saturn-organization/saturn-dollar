@@ -7,12 +7,12 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IUScc} from "src/IUScc.sol";
+import {IUSDat} from "src/IUSDat.sol";
 
-contract UScc is ERC20, ERC20Burnable, Ownable2Step, ERC20Permit, IUScc {
+contract USDat is ERC20, ERC20Burnable, Ownable2Step, ERC20Permit, IUSDat {
     address public minter;
 
-    constructor(address initialOwner) ERC20("UScc", "UScc") Ownable(initialOwner) ERC20Permit("UScc") {}
+    constructor(address initialOwner) ERC20("USDat", "USDat") Ownable(initialOwner) ERC20Permit("USDat") {}
 
     function renounceOwnership() public view override onlyOwner {
         revert CantRenounceOwnership();
