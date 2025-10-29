@@ -6,10 +6,11 @@ import {USDat} from "../src/USDat.sol";
 
 contract USDatScript is Script {
     function run() public {
-        address initialOwner = vm.envAddress("INITIAL_OWNER"); // Read from .env
+        address minter = vm.envAddress("MINTER"); // Read from .env
+        address defaultAdmin = vm.envAddress("DEFAULT_ADMIN"); // Read from .env
 
         vm.startBroadcast();
-        new USDat(initialOwner);
+        new USDat(defaultAdmin, minter);
         vm.stopBroadcast();
     }
 }

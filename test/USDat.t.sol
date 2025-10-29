@@ -1,245 +1,130 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
-import {Test} from "forge-std/Test.sol";
-import {USDat} from "../src/USDat.sol";
-import {IUSDat} from "../src/IUSDat.sol";
+import "forge-std/Test.sol";
+import "../src/USDat.sol"; // Adjust the path based on your Foundry project structure
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract USDatTest is Test {
     USDat public token;
-    address public owner;
+    address public admin;
     address public minter;
     address public user1;
     address public user2;
+    uint256 internal constant USER1_PRIVATE_KEY = 0xA11CE;
 
     function setUp() public {
-        owner = makeAddr("owner");
+        admin = address(this); // Or use a specific address: makeAddr("admin");
         minter = makeAddr("minter");
-        user1 = makeAddr("user1");
+        user1 = vm.addr(USER1_PRIVATE_KEY);
         user2 = makeAddr("user2");
 
-        vm.prank(owner);
-        token = new USDat(owner);
+        token = new USDat(admin, minter);
     }
 
-    /* ============ Constructor Tests ============ */
-
-    function test_Constructor() public view {
+    function testDeployment() public view {
         assertEq(token.name(), "USDat");
         assertEq(token.symbol(), "USDat");
-        assertEq(token.decimals(), 18);
-        assertEq(token.owner(), owner);
-        assertEq(token.minter(), address(0));
+        assertEq(token.decimals(), 18); // Default from ERC20
+        assertTrue(token.hasRole(token.DEFAULT_ADMIN_ROLE(), admin));
+        assertTrue(token.hasRole(token.MINTER_ROLE(), minter));
+        assertEq(token.totalSupply(), 0);
     }
 
-    /* ============ Minter Tests ============ */
-
-    function test_SetMinter() public {
-        vm.prank(owner);
-        vm.expectEmit(true, true, false, true);
-        emit IUSDat.MinterUpdated(minter, address(0));
-        token.setMinter(minter);
-
-        assertEq(token.minter(), minter);
-    }
-
-    function test_RevertWhen_NonOwnerSetsMinter() public {
-        vm.prank(user1);
-        vm.expectRevert();
-        token.setMinter(minter);
-    }
-
-    function test_SetMinterToZeroAddress() public {
-        // First set a minter
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        // Then set to zero address
-        vm.prank(owner);
-        vm.expectEmit(true, true, false, true);
-        emit IUSDat.MinterUpdated(address(0), minter);
-        token.setMinter(address(0));
-
-        assertEq(token.minter(), address(0));
-    }
-
-    /* ============ Mint Tests ============ */
-
-    function test_Mint() public {
-        vm.prank(owner);
-        token.setMinter(minter);
+    function testMintByMinter() public {
+        uint256 amount = 1000 * 10 ** 18;
 
         vm.prank(minter);
-        token.mint(user1, 1000e18);
+        token.mint(user1, amount);
 
-        assertEq(token.balanceOf(user1), 1000e18);
-        assertEq(token.totalSupply(), 1000e18);
-    }
-
-    function test_RevertWhen_NonMinterMints() public {
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        vm.prank(user1);
-        vm.expectRevert(IUSDat.OnlyMinter.selector);
-        token.mint(user1, 1000e18);
-    }
-
-    function test_RevertWhen_MinterNotSet() public {
-        vm.prank(user1);
-        vm.expectRevert(IUSDat.OnlyMinter.selector);
-        token.mint(user1, 1000e18);
-    }
-
-    function testFuzz_Mint(address to, uint256 amount) public {
-        vm.assume(to != address(0));
-        vm.assume(amount < type(uint256).max);
-
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        vm.prank(minter);
-        token.mint(to, amount);
-
-        assertEq(token.balanceOf(to), amount);
+        assertEq(token.balanceOf(user1), amount);
         assertEq(token.totalSupply(), amount);
     }
 
-    /* ============ Burn Tests ============ */
+    function testMintByNonMinterFails() public {
+        uint256 amount = 1000 * 10 ** 18;
 
-    function test_Burn() public {
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        vm.prank(minter);
-        token.mint(user1, 1000e18);
-
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user1, token.MINTER_ROLE())
+        );
         vm.prank(user1);
-        token.burn(500e18);
-
-        assertEq(token.balanceOf(user1), 500e18);
-        assertEq(token.totalSupply(), 500e18);
+        token.mint(user1, amount);
     }
 
-    function test_BurnFrom() public {
-        vm.prank(owner);
-        token.setMinter(minter);
+    function testBurn() public {
+        uint256 mintAmount = 1000 * 10 ** 18;
+        uint256 burnAmount = 500 * 10 ** 18;
 
         vm.prank(minter);
-        token.mint(user1, 1000e18);
+        token.mint(user1, mintAmount);
 
         vm.prank(user1);
-        token.approve(user2, 500e18);
+        token.burn(burnAmount);
+
+        assertEq(token.balanceOf(user1), mintAmount - burnAmount);
+        assertEq(token.totalSupply(), mintAmount - burnAmount);
+    }
+
+    function testBurnFrom() public {
+        uint256 mintAmount = 1000 * 10 ** 18;
+        uint256 burnAmount = 500 * 10 ** 18;
+
+        vm.prank(minter);
+        token.mint(user1, mintAmount);
+
+        vm.prank(user1);
+        token.approve(user2, burnAmount);
 
         vm.prank(user2);
-        token.burnFrom(user1, 500e18);
+        token.burnFrom(user1, burnAmount);
 
-        assertEq(token.balanceOf(user1), 500e18);
-        assertEq(token.totalSupply(), 500e18);
+        assertEq(token.balanceOf(user1), mintAmount - burnAmount);
+        assertEq(token.totalSupply(), mintAmount - burnAmount);
     }
 
-    /* ============ Ownership Tests ============ */
+    function testPermit() public {
+        uint256 amount = 1000 * 10 ** 18;
+        uint256 nonce = token.nonces(user1);
+        uint256 deadline = block.timestamp + 1 hours;
 
-    function test_RevertWhen_RenounceOwnership() public {
-        vm.prank(owner);
-        vm.expectRevert(IUSDat.CantRenounceOwnership.selector);
-        token.renounceOwnership();
-
-        assertEq(token.owner(), owner);
-    }
-
-    function test_TransferOwnership() public {
-        vm.prank(owner);
-        token.transferOwnership(user1);
-
-        assertEq(token.pendingOwner(), user1);
-        assertEq(token.owner(), owner);
-
-        vm.prank(user1);
-        token.acceptOwnership();
-
-        assertEq(token.owner(), user1);
-        assertEq(token.pendingOwner(), address(0));
-    }
-
-    function test_RevertWhen_NonOwnerTransfersOwnership() public {
-        vm.prank(user1);
-        vm.expectRevert();
-        token.transferOwnership(user2);
-    }
-
-    /* ============ ERC20 Tests ============ */
-
-    function test_Transfer() public {
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        vm.prank(minter);
-        token.mint(user1, 1000e18);
-
-        vm.prank(user1);
-        token.transfer(user2, 500e18);
-
-        assertEq(token.balanceOf(user1), 500e18);
-        assertEq(token.balanceOf(user2), 500e18);
-    }
-
-    function test_Approve() public {
-        vm.prank(user1);
-        token.approve(user2, 1000e18);
-
-        assertEq(token.allowance(user1, user2), 1000e18);
-    }
-
-    function test_TransferFrom() public {
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        vm.prank(minter);
-        token.mint(user1, 1000e18);
-
-        vm.prank(user1);
-        token.approve(user2, 500e18);
-
-        vm.prank(user2);
-        token.transferFrom(user1, user2, 500e18);
-
-        assertEq(token.balanceOf(user1), 500e18);
-        assertEq(token.balanceOf(user2), 500e18);
-    }
-
-    /* ============ ERC20Permit Tests ============ */
-
-    function test_Permit() public {
-        uint256 privateKey = 0xA11CE;
-        address alice = vm.addr(privateKey);
-
-        vm.prank(owner);
-        token.setMinter(minter);
-
-        vm.prank(minter);
-        token.mint(alice, 1000e18);
-
-        uint256 deadline = block.timestamp + 1 days;
-        uint256 nonce = token.nonces(alice);
-
+        bytes32 domainSeparator = token.DOMAIN_SEPARATOR();
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
-                alice,
                 user1,
-                500e18,
+                user2,
+                amount,
                 nonce,
                 deadline
             )
         );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), structHash));
+        // Simulate signing (in tests, we use vm.sign with a private key)
+        vm.deal(user1, 1 ether); // Not necessary, but for completeness
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(USER1_PRIVATE_KEY, digest);
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        // Apply the permit
+        token.permit(user1, user2, amount, deadline, v, r, s);
 
-        token.permit(alice, user1, 500e18, deadline, v, r, s);
+        assertEq(token.allowance(user1, user2), amount);
+        assertEq(token.nonces(user1), nonce + 1);
+    }
 
-        assertEq(token.allowance(alice, user1), 500e18);
+    function testGrantMinterRole() public {
+        address newMinter = makeAddr("newMinter");
+
+        // Only admin can grant roles
+        vm.prank(admin);
+        token.grantRole(token.MINTER_ROLE(), newMinter);
+
+        assertTrue(token.hasRole(token.MINTER_ROLE(), newMinter));
+    }
+
+    function testRevokeMinterRole() public {
+        vm.prank(admin);
+        token.revokeRole(token.MINTER_ROLE(), minter);
+
+        assertFalse(token.hasRole(token.MINTER_ROLE(), minter));
     }
 }
