@@ -20,7 +20,10 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
     event Blacklisted(address indexed account);
     event UnBlacklisted(address indexed account);
 
-    constructor(address defaultAdmin, address minter, address blacklistManager) ERC20("USDat", "USDat") ERC20Permit("USDat") {
+    constructor(address defaultAdmin, address minter, address blacklistManager)
+        ERC20("USDat", "USDat")
+        ERC20Permit("USDat")
+    {
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(MINTER_ROLE, minter);
         _grantRole(BLACKLIST_MANAGER_ROLE, blacklistManager);
@@ -35,7 +38,7 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
         _mint(to, amount);
     }
 
-     function rescueTokens(address token, uint256 amount, address to)
+    function rescueTokens(address token, uint256 amount, address to)
         external
         nonReentrant
         onlyRole(DEFAULT_ADMIN_ROLE)
@@ -75,5 +78,4 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
     function isBlacklisted(address account) external view returns (bool) {
         return _blacklisted[account];
     }
-    
 }
