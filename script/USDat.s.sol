@@ -8,9 +8,10 @@ contract USDatScript is Script {
     function run() public {
         address minter = vm.envAddress("MINTER"); // Read from .env
         address defaultAdmin = vm.envAddress("DEFAULT_ADMIN"); // Read from .env
+        address blacklistManager = vm.envAddress("BLACKLIST_MANAGER"); // Read from .env
 
         vm.startBroadcast();
-        new USDat(defaultAdmin, minter);
+        new USDat(defaultAdmin, minter, blacklistManager);
         vm.stopBroadcast();
     }
 }
