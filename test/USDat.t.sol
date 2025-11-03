@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
-import "forge-std/Test.sol";
-import "../src/USDat.sol"; // Adjust the path based on your Foundry project structure
+import {Test} from "forge-std/Test.sol";
+import {USDat} from "../src/USDat.sol"; // Adjust the path based on your Foundry project structure
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract USDatTest is Test {
