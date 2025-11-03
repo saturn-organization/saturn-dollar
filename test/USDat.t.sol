@@ -21,7 +21,6 @@ contract USDatTest is Test {
         user1 = vm.addr(USER1_PRIVATE_KEY);
         user2 = makeAddr("user2");
 
-
         token = new USDat(admin, minter, blacklistManager);
     }
 
