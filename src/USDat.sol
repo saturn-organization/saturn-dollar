@@ -24,7 +24,11 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
         _mint(to, amount);
     }
 
-    function rescueTokens(address token, uint256 amount, address to) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
+    function rescueTokens(address token, uint256 amount, address to)
+        external
+        nonReentrant
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         IERC20(token).safeTransfer(to, amount);
     }
 }
