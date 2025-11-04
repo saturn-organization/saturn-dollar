@@ -11,15 +11,17 @@ contract USDatTest is Test {
     address public minter;
     address public user1;
     address public user2;
+    address public blacklistManager;
     uint256 internal constant USER1_PRIVATE_KEY = 0xA11CE;
 
     function setUp() public {
         admin = address(this); // Or use a specific address: makeAddr("admin");
         minter = makeAddr("minter");
+        blacklistManager = makeAddr("blacklistManager");
         user1 = vm.addr(USER1_PRIVATE_KEY);
         user2 = makeAddr("user2");
 
-        token = new USDat(admin, minter);
+        token = new USDat(admin, minter, blacklistManager);
     }
 
     function testDeployment() public view {

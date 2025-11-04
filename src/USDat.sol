@@ -14,13 +14,27 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
     using SafeERC20 for IERC20;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant BLACKLIST_MANAGER_ROLE = keccak256("BLACKLIST_MANAGER_ROLE");
 
-    constructor(address defaultAdmin, address minter) ERC20("USDat", "USDat") ERC20Permit("USDat") {
+    mapping(address => bool) private _blacklisted;
+    event Blacklisted(address indexed account);
+    event UnBlacklisted(address indexed account);
+
+    constructor(address defaultAdmin, address minter, address blacklistManager)
+        ERC20("USDat", "USDat")
+        ERC20Permit("USDat")
+    {
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(MINTER_ROLE, minter);
+        _grantRole(BLACKLIST_MANAGER_ROLE, blacklistManager);
+    }
+
+    function _requireNotBlacklisted(address account) internal view {
+        require(!_blacklisted[account], "Recipient is blacklisted");
     }
 
     function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
+        _requireNotBlacklisted(to);
         _mint(to, amount);
     }
 
@@ -30,5 +44,38 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         IERC20(token).safeTransfer(to, amount);
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        _requireNotBlacklisted(to);
+        return super.transfer(to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        _requireNotBlacklisted(to);
+        return super.transferFrom(from, to, amount);
+    }
+
+    function burnBlacklistedTokens(address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireNotBlacklisted(account);
+        uint256 amount = balanceOf(account);
+        require(amount > 0, "Account has no balance");
+        _burn(account, amount);
+    }
+
+    function addToBlacklist(address account) external onlyRole(BLACKLIST_MANAGER_ROLE) {
+        if (_blacklisted[account]) revert("Already blacklisted");
+        _blacklisted[account] = true;
+        emit Blacklisted(account);
+    }
+
+    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_MANAGER_ROLE) {
+        if (!_blacklisted[account]) revert("Not blacklisted");
+        _blacklisted[account] = false;
+        emit UnBlacklisted(account);
+    }
+
+    function isBlacklisted(address account) external view returns (bool) {
+        return _blacklisted[account];
     }
 }
