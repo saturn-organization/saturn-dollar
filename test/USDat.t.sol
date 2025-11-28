@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 import {USDat} from "../src/USDat.sol"; // Adjust the path based on your Foundry project structure
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract USDatTest is Test {
     USDat public token;
@@ -21,7 +22,23 @@ contract USDatTest is Test {
         user1 = vm.addr(USER1_PRIVATE_KEY);
         user2 = makeAddr("user2");
 
-        token = new USDat(admin, minter, blacklistManager);
+        // Deploy implementation
+        USDat implementation = new USDat();
+
+        // Encode initialize call
+        bytes memory initData = abi.encodeCall(
+            USDat.initialize,
+            (admin, minter, blacklistManager)
+        );
+
+        // Deploy proxy
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(implementation),
+            initData
+        );
+
+        // Wrap proxy in USDat interface
+        token = USDat(address(proxy));
     }
 
     function testDeployment() public view {
@@ -47,7 +64,11 @@ contract USDatTest is Test {
         uint256 amount = 1000 * 10 ** 18;
 
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user1, token.MINTER_ROLE())
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                user1,
+                token.MINTER_ROLE()
+            )
         );
         vm.prank(user1);
         token.mint(user1, amount);
@@ -92,7 +113,9 @@ contract USDatTest is Test {
         bytes32 domainSeparator = token.DOMAIN_SEPARATOR();
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                keccak256(
+                    "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
+                ),
                 user1,
                 user2,
                 amount,
@@ -100,7 +123,9 @@ contract USDatTest is Test {
                 deadline
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, structHash)
+        );
 
         // Simulate signing (in tests, we use vm.sign with a private key)
         vm.deal(user1, 1 ether); // Not necessary, but for completeness

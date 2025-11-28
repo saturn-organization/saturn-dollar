@@ -2,28 +2,51 @@
 // Compatible with OpenZeppelin Contracts ^5.4.0
 pragma solidity ^0.8.27;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC20BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
+import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Permit {
+contract USDat is
+    Initializable,
+    ERC20Upgradeable,
+    ERC20BurnableUpgradeable,
+    ReentrancyGuard,
+    AccessControlUpgradeable,
+    ERC20PermitUpgradeable,
+    UUPSUpgradeable
+{
     using SafeERC20 for IERC20;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    bytes32 public constant BLACKLIST_MANAGER_ROLE = keccak256("BLACKLIST_MANAGER_ROLE");
+    bytes32 public constant BLACKLIST_MANAGER_ROLE =
+        keccak256("BLACKLIST_MANAGER_ROLE");
 
     mapping(address => bool) private _blacklisted;
+
     event Blacklisted(address indexed account);
     event UnBlacklisted(address indexed account);
 
-    constructor(address defaultAdmin, address minter, address blacklistManager)
-        ERC20("USDat", "USDat")
-        ERC20Permit("USDat")
-    {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        address defaultAdmin,
+        address minter,
+        address blacklistManager
+    ) public initializer {
+        __ERC20_init("USDat", "USDat");
+        __ERC20Burnable_init();
+        __AccessControl_init();
+        __ERC20Permit_init("USDat");
+
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(MINTER_ROLE, minter);
         _grantRole(BLACKLIST_MANAGER_ROLE, blacklistManager);
@@ -38,38 +61,51 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
         _mint(to, amount);
     }
 
-    function rescueTokens(address token, uint256 amount, address to)
-        external
-        nonReentrant
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function rescueTokens(
+        address token,
+        uint256 amount,
+        address to
+    ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         IERC20(token).safeTransfer(to, amount);
     }
 
-    function transfer(address to, uint256 amount) public override returns (bool) {
+    function transfer(
+        address to,
+        uint256 amount
+    ) public override returns (bool) {
         _requireNotBlacklisted(to);
         return super.transfer(to, amount);
     }
 
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) public override returns (bool) {
         _requireNotBlacklisted(to);
         return super.transferFrom(from, to, amount);
     }
 
-    function burnBlacklistedTokens(address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _requireNotBlacklisted(account);
+    function burnBlacklistedTokens(
+        address account
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_blacklisted[account], "Account is not blacklisted");
         uint256 amount = balanceOf(account);
         require(amount > 0, "Account has no balance");
         _burn(account, amount);
     }
 
-    function addToBlacklist(address account) external onlyRole(BLACKLIST_MANAGER_ROLE) {
+    function addToBlacklist(
+        address account
+    ) external onlyRole(BLACKLIST_MANAGER_ROLE) {
         if (_blacklisted[account]) revert("Already blacklisted");
         _blacklisted[account] = true;
         emit Blacklisted(account);
     }
 
-    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_MANAGER_ROLE) {
+    function removeFromBlacklist(
+        address account
+    ) external onlyRole(BLACKLIST_MANAGER_ROLE) {
         if (!_blacklisted[account]) revert("Not blacklisted");
         _blacklisted[account] = false;
         emit UnBlacklisted(account);
@@ -78,4 +114,15 @@ contract USDat is ERC20, ERC20Burnable, ReentrancyGuard, AccessControl, ERC20Per
     function isBlacklisted(address account) external view returns (bool) {
         return _blacklisted[account];
     }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    /**
+     * @dev This empty reserved space is put in place to allow future versions to add new
+     * variables without shifting down storage in the inheritance chain.
+     * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+     */
+    uint256[49] private __gap;
 }
