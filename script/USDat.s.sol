@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Script} from "forge-std/Script.sol";
 import {USDat} from "../src/USDat.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract USDatScript is Script {
     function run() public {
@@ -11,7 +12,19 @@ contract USDatScript is Script {
         address blacklistManager = vm.envAddress("BLACKLIST_MANAGER"); // Read from .env
 
         vm.startBroadcast();
-        new USDat(defaultAdmin, minter, blacklistManager);
+
+        // Deploy implementation
+        USDat implementation = new USDat();
+
+        // Encode initialize call
+        bytes memory initData = abi.encodeCall(USDat.initialize, (defaultAdmin, minter, blacklistManager));
+
+        // Deploy proxy
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        // The proxy address is what you'll use for the token
+        // USDat token = USDat(address(proxy));
+
         vm.stopBroadcast();
     }
 }

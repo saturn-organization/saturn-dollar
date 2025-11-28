@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 import {USDat} from "../src/USDat.sol"; // Adjust the path based on your Foundry project structure
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract USDatTest is Test {
     USDat public token;
@@ -21,7 +22,17 @@ contract USDatTest is Test {
         user1 = vm.addr(USER1_PRIVATE_KEY);
         user2 = makeAddr("user2");
 
-        token = new USDat(admin, minter, blacklistManager);
+        // Deploy implementation
+        USDat implementation = new USDat();
+
+        // Encode initialize call
+        bytes memory initData = abi.encodeCall(USDat.initialize, (admin, minter, blacklistManager));
+
+        // Deploy proxy
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        // Wrap proxy in USDat interface
+        token = USDat(address(proxy));
     }
 
     function testDeployment() public view {
