@@ -17,16 +17,10 @@ contract USDatScript is Script {
         USDat implementation = new USDat();
 
         // Encode initialize call
-        bytes memory initData = abi.encodeCall(
-            USDat.initialize,
-            (defaultAdmin, minter, blacklistManager)
-        );
+        bytes memory initData = abi.encodeCall(USDat.initialize, (defaultAdmin, minter, blacklistManager));
 
         // Deploy proxy
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation),
-            initData
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         // The proxy address is what you'll use for the token
         // USDat token = USDat(address(proxy));

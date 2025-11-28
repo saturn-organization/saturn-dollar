@@ -26,16 +26,10 @@ contract USDatTest is Test {
         USDat implementation = new USDat();
 
         // Encode initialize call
-        bytes memory initData = abi.encodeCall(
-            USDat.initialize,
-            (admin, minter, blacklistManager)
-        );
+        bytes memory initData = abi.encodeCall(USDat.initialize, (admin, minter, blacklistManager));
 
         // Deploy proxy
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation),
-            initData
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
 
         // Wrap proxy in USDat interface
         token = USDat(address(proxy));
@@ -64,11 +58,7 @@ contract USDatTest is Test {
         uint256 amount = 1000 * 10 ** 18;
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                user1,
-                token.MINTER_ROLE()
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user1, token.MINTER_ROLE())
         );
         vm.prank(user1);
         token.mint(user1, amount);
@@ -113,9 +103,7 @@ contract USDatTest is Test {
         bytes32 domainSeparator = token.DOMAIN_SEPARATOR();
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256(
-                    "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
-                ),
+                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
                 user1,
                 user2,
                 amount,
@@ -123,9 +111,7 @@ contract USDatTest is Test {
                 deadline
             )
         );
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", domainSeparator, structHash)
-        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
         // Simulate signing (in tests, we use vm.sign with a private key)
         vm.deal(user1, 1 ether); // Not necessary, but for completeness
