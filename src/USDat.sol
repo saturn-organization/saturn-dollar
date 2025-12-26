@@ -46,8 +46,11 @@ contract USDat is
         __AccessControl_init();
         __ERC20Permit_init("USDat");
 
+        // Manages Upgrades
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
+        // Manages minting new tokens
         _grantRole(MINTER_ROLE, minter);
+        // Manages
         _grantRole(BLACKLIST_MANAGER_ROLE, blacklistManager);
     }
 
@@ -63,7 +66,7 @@ contract USDat is
     function rescueTokens(address token, uint256 amount, address to)
         external
         nonReentrant
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyRole(BLACKLIST_MANAGER_ROLE)
     {
         IERC20(token).safeTransfer(to, amount);
     }
@@ -78,7 +81,7 @@ contract USDat is
         return super.transferFrom(from, to, amount);
     }
 
-    function burnBlacklistedTokens(address account) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function burnBlacklistedTokens(address account) public onlyRole(BLACKLIST_MANAGER_ROLE) {
         require(_blacklisted[account], "Account is not blacklisted");
         uint256 amount = balanceOf(account);
         require(amount > 0, "Account has no balance");
