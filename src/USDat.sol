@@ -5,8 +5,12 @@ pragma solidity ^0.8.27;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import {ERC20BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
-import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {
+    ERC20BurnableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
+import {
+    ERC20PermitUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -36,11 +40,7 @@ contract USDat is
         _disableInitializers();
     }
 
-    function initialize(
-        address defaultAdmin,
-        address processor,
-        address compliance
-    ) public initializer {
+    function initialize(address defaultAdmin, address processor, address compliance) public initializer {
         __ERC20_init("USDat", "USDat");
         __ERC20Burnable_init();
         __AccessControl_init();
@@ -63,51 +63,34 @@ contract USDat is
         _mint(to, amount);
     }
 
-    function rescueTokens(
-        address token,
-        uint256 amount,
-        address to
-    ) external nonReentrant onlyRole(COMPLIANCE_ROLE) {
+    function rescueTokens(address token, uint256 amount, address to) external nonReentrant onlyRole(COMPLIANCE_ROLE) {
         IERC20(token).safeTransfer(to, amount);
     }
 
-    function transfer(
-        address to,
-        uint256 amount
-    ) public override returns (bool) {
+    function transfer(address to, uint256 amount) public override returns (bool) {
         _requireNotBlacklisted(to);
         return super.transfer(to, amount);
     }
 
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) public override returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
         _requireNotBlacklisted(to);
         return super.transferFrom(from, to, amount);
     }
 
-    function burnBlacklistedTokens(
-        address account
-    ) public onlyRole(COMPLIANCE_ROLE) {
+    function burnBlacklistedTokens(address account) public onlyRole(COMPLIANCE_ROLE) {
         require(_blacklisted[account], "Account is not blacklisted");
         uint256 amount = balanceOf(account);
         require(amount > 0, "Account has no balance");
         _burn(account, amount);
     }
 
-    function addToBlacklist(
-        address account
-    ) external onlyRole(COMPLIANCE_ROLE) {
+    function addToBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
         if (_blacklisted[account]) revert("Already blacklisted");
         _blacklisted[account] = true;
         emit Blacklisted(account);
     }
 
-    function removeFromBlacklist(
-        address account
-    ) external onlyRole(COMPLIANCE_ROLE) {
+    function removeFromBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
         if (!_blacklisted[account]) revert("Not blacklisted");
         _blacklisted[account] = false;
         emit UnBlacklisted(account);
@@ -117,7 +100,5 @@ contract USDat is
         return _blacklisted[account];
     }
 
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 }
