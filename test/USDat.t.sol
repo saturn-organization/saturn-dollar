@@ -9,16 +9,16 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 contract USDatTest is Test {
     USDat public token;
     address public admin;
-    address public minter;
+    address public processor;
     address public user1;
     address public user2;
-    address public blacklistManager;
+    address public compliance;
     uint256 internal constant USER1_PRIVATE_KEY = 0xA11CE;
 
     function setUp() public {
         admin = address(this); // Or use a specific address: makeAddr("admin");
-        minter = makeAddr("minter");
-        blacklistManager = makeAddr("blacklistManager");
+        processor = makeAddr("processor");
+        compliance = makeAddr("compliance");
         user1 = vm.addr(USER1_PRIVATE_KEY);
         user2 = makeAddr("user2");
 
@@ -26,7 +26,7 @@ contract USDatTest is Test {
         USDat implementation = new USDat();
 
         // Encode initialize call
-        bytes memory initData = abi.encodeCall(USDat.initialize, (admin, minter, blacklistManager));
+        bytes memory initData = abi.encodeCall(USDat.initialize, (admin, processor, compliance));
 
         // Deploy proxy
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
@@ -40,25 +40,27 @@ contract USDatTest is Test {
         assertEq(token.symbol(), "USDat");
         assertEq(token.decimals(), 18); // Default from ERC20
         assertTrue(token.hasRole(token.DEFAULT_ADMIN_ROLE(), admin));
-        assertTrue(token.hasRole(token.MINTER_ROLE(), minter));
+        assertTrue(token.hasRole(token.PROCESSOR_ROLE(), processor));
         assertEq(token.totalSupply(), 0);
     }
 
-    function testMintByMinter() public {
+    function testMintByProcessor() public {
         uint256 amount = 1000 * 10 ** 18;
 
-        vm.prank(minter);
+        vm.prank(processor);
         token.mint(user1, amount);
 
         assertEq(token.balanceOf(user1), amount);
         assertEq(token.totalSupply(), amount);
     }
 
-    function testMintByNonMinterFails() public {
+    function testMintByNonProcessorFails() public {
         uint256 amount = 1000 * 10 ** 18;
 
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user1, token.MINTER_ROLE())
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, user1, token.PROCESSOR_ROLE()
+            )
         );
         vm.prank(user1);
         token.mint(user1, amount);
@@ -68,7 +70,7 @@ contract USDatTest is Test {
         uint256 mintAmount = 1000 * 10 ** 18;
         uint256 burnAmount = 500 * 10 ** 18;
 
-        vm.prank(minter);
+        vm.prank(processor);
         token.mint(user1, mintAmount);
 
         vm.prank(user1);
@@ -82,7 +84,7 @@ contract USDatTest is Test {
         uint256 mintAmount = 1000 * 10 ** 18;
         uint256 burnAmount = 500 * 10 ** 18;
 
-        vm.prank(minter);
+        vm.prank(processor);
         token.mint(user1, mintAmount);
 
         vm.prank(user1);
@@ -124,20 +126,20 @@ contract USDatTest is Test {
         assertEq(token.nonces(user1), nonce + 1);
     }
 
-    function testGrantMinterRole() public {
-        address newMinter = makeAddr("newMinter");
+    function testGrantProcessorRole() public {
+        address newProcessor = makeAddr("newProcessor");
 
         // Only admin can grant roles
         vm.prank(admin);
-        token.grantRole(token.MINTER_ROLE(), newMinter);
+        token.grantRole(token.PROCESSOR_ROLE(), newProcessor);
 
-        assertTrue(token.hasRole(token.MINTER_ROLE(), newMinter));
+        assertTrue(token.hasRole(token.PROCESSOR_ROLE(), newProcessor));
     }
 
-    function testRevokeMinterRole() public {
+    function testRevokeProcessorRole() public {
         vm.prank(admin);
-        token.revokeRole(token.MINTER_ROLE(), minter);
+        token.revokeRole(token.PROCESSOR_ROLE(), processor);
 
-        assertFalse(token.hasRole(token.MINTER_ROLE(), minter));
+        assertFalse(token.hasRole(token.PROCESSOR_ROLE(), processor));
     }
 }

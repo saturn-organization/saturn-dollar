@@ -27,8 +27,8 @@ contract USDat is
 {
     using SafeERC20 for IERC20;
 
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    bytes32 public constant BLACKLIST_MANAGER_ROLE = keccak256("BLACKLIST_MANAGER_ROLE");
+    bytes32 public constant PROCESSOR_ROLE = keccak256("PROCESSOR_ROLE");
+    bytes32 public constant COMPLIANCE_ROLE = keccak256("COMPLIANCE_ROLE");
 
     mapping(address => bool) private _blacklisted;
 
@@ -40,7 +40,7 @@ contract USDat is
         _disableInitializers();
     }
 
-    function initialize(address defaultAdmin, address minter, address blacklistManager) public initializer {
+    function initialize(address defaultAdmin, address processor, address compliance) public initializer {
         __ERC20_init("USDat", "USDat");
         __ERC20Burnable_init();
         __AccessControl_init();
@@ -49,25 +49,21 @@ contract USDat is
         // Manages Upgrades
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         // Manages minting new tokens
-        _grantRole(MINTER_ROLE, minter);
-        // Manages
-        _grantRole(BLACKLIST_MANAGER_ROLE, blacklistManager);
+        _grantRole(PROCESSOR_ROLE, processor);
+        // Manages compliance (blacklist)
+        _grantRole(COMPLIANCE_ROLE, compliance);
     }
 
     function _requireNotBlacklisted(address account) internal view {
         require(!_blacklisted[account], "Recipient is blacklisted");
     }
 
-    function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
+    function mint(address to, uint256 amount) public onlyRole(PROCESSOR_ROLE) {
         _requireNotBlacklisted(to);
         _mint(to, amount);
     }
 
-    function rescueTokens(address token, uint256 amount, address to)
-        external
-        nonReentrant
-        onlyRole(BLACKLIST_MANAGER_ROLE)
-    {
+    function rescueTokens(address token, uint256 amount, address to) external nonReentrant onlyRole(COMPLIANCE_ROLE) {
         IERC20(token).safeTransfer(to, amount);
     }
 
@@ -81,20 +77,20 @@ contract USDat is
         return super.transferFrom(from, to, amount);
     }
 
-    function burnBlacklistedTokens(address account) public onlyRole(BLACKLIST_MANAGER_ROLE) {
+    function burnBlacklistedTokens(address account) public onlyRole(COMPLIANCE_ROLE) {
         require(_blacklisted[account], "Account is not blacklisted");
         uint256 amount = balanceOf(account);
         require(amount > 0, "Account has no balance");
         _burn(account, amount);
     }
 
-    function addToBlacklist(address account) external onlyRole(BLACKLIST_MANAGER_ROLE) {
+    function addToBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
         if (_blacklisted[account]) revert("Already blacklisted");
         _blacklisted[account] = true;
         emit Blacklisted(account);
     }
 
-    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_MANAGER_ROLE) {
+    function removeFromBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
         if (!_blacklisted[account]) revert("Not blacklisted");
         _blacklisted[account] = false;
         emit UnBlacklisted(account);
@@ -105,11 +101,4 @@ contract USDat is
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
-
-    /**
-     * @dev This empty reserved space is put in place to allow future versions to add new
-     * variables without shifting down storage in the inheritance chain.
-     * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-     */
-    uint256[49] private __gap;
 }
