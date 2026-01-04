@@ -72,12 +72,16 @@ contract USDat is
     }
 
     function transfer(address to, uint256 amount) public override returns (bool) {
+        _requireNotBlacklisted(msg.sender);
         _requireNotBlacklisted(to);
+
         return super.transfer(to, amount);
     }
 
     function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        _requireNotBlacklisted(from);
         _requireNotBlacklisted(to);
+
         return super.transferFrom(from, to, amount);
     }
 
