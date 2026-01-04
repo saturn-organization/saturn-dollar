@@ -30,7 +30,7 @@ contract USDat is
     bytes32 public constant PROCESSOR_ROLE = keccak256("PROCESSOR_ROLE");
     bytes32 public constant COMPLIANCE_ROLE = keccak256("COMPLIANCE_ROLE");
 
-    mapping(address => bool) private _blacklisted;
+    mapping(address account => bool isBlacklisted) private _blacklisted;
 
     error AddressBlacklisted(address account);
     error AddressNotBlacklisted(address account);
