@@ -32,6 +32,10 @@ contract USDat is
 
     mapping(address => bool) private _blacklisted;
 
+    error AddressBlacklisted(address account);
+    error AddressNotBlacklisted(address account);
+    error InsufficientBalance(address account);
+
     event Blacklisted(address indexed account);
     event UnBlacklisted(address indexed account);
 
@@ -55,7 +59,7 @@ contract USDat is
     }
 
     function _requireNotBlacklisted(address account) internal view {
-        require(!_blacklisted[account], "Recipient is blacklisted");
+        require(!_blacklisted[account], AddressBlacklisted(account));
     }
 
     function mint(address to, uint256 amount) public onlyRole(PROCESSOR_ROLE) {
@@ -78,20 +82,20 @@ contract USDat is
     }
 
     function burnBlacklistedTokens(address account) public onlyRole(COMPLIANCE_ROLE) {
-        require(_blacklisted[account], "Account is not blacklisted");
+        require(_blacklisted[account], AddressNotBlacklisted(account));
         uint256 amount = balanceOf(account);
-        require(amount > 0, "Account has no balance");
+        require(amount > 0, InsufficientBalance(account));
         _burn(account, amount);
     }
 
     function addToBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
-        if (_blacklisted[account]) revert("Already blacklisted");
+        require(!_blacklisted[account], AddressBlacklisted(account));
         _blacklisted[account] = true;
         emit Blacklisted(account);
     }
 
     function removeFromBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
-        if (!_blacklisted[account]) revert("Not blacklisted");
+        require(_blacklisted[account], AddressNotBlacklisted(account));
         _blacklisted[account] = false;
         emit UnBlacklisted(account);
     }
