@@ -26,10 +26,16 @@ contract USDatTest is Test {
         USDat implementation = new USDat();
 
         // Encode initialize call
-        bytes memory initData = abi.encodeCall(USDat.initialize, (admin, processor, compliance));
+        bytes memory initData = abi.encodeCall(
+            USDat.initialize,
+            (admin, processor, compliance)
+        );
 
         // Deploy proxy
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(implementation),
+            initData
+        );
 
         // Wrap proxy in USDat interface
         token = USDat(address(proxy));
@@ -41,6 +47,7 @@ contract USDatTest is Test {
         assertEq(token.decimals(), 18); // Default from ERC20
         assertTrue(token.hasRole(token.DEFAULT_ADMIN_ROLE(), admin));
         assertTrue(token.hasRole(token.PROCESSOR_ROLE(), processor));
+        assertTrue(token.hasRole(token.COMPLIANCE_ROLE(), compliance));
         assertEq(token.totalSupply(), 0);
     }
 
@@ -59,7 +66,9 @@ contract USDatTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, user1, token.PROCESSOR_ROLE()
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                user1,
+                token.PROCESSOR_ROLE()
             )
         );
         vm.prank(user1);
@@ -105,7 +114,9 @@ contract USDatTest is Test {
         bytes32 domainSeparator = token.DOMAIN_SEPARATOR();
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                keccak256(
+                    "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
+                ),
                 user1,
                 user2,
                 amount,
@@ -113,7 +124,9 @@ contract USDatTest is Test {
                 deadline
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, structHash)
+        );
 
         // Simulate signing (in tests, we use vm.sign with a private key)
         vm.deal(user1, 1 ether); // Not necessary, but for completeness
@@ -141,5 +154,172 @@ contract USDatTest is Test {
         token.revokeRole(token.PROCESSOR_ROLE(), processor);
 
         assertFalse(token.hasRole(token.PROCESSOR_ROLE(), processor));
+    }
+
+    // Blacklist Tests
+    function testAddToBlacklist() public {
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        assertTrue(token.isBlacklisted(user1));
+    }
+
+    function testAddToBlacklistByNonComplianceFails() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                user1,
+                token.COMPLIANCE_ROLE()
+            )
+        );
+        vm.prank(user1);
+        token.addToBlacklist(user2);
+    }
+
+    function testAddToBlacklistAlreadyBlacklistedFails() public {
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressBlacklisted.selector, user1)
+        );
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+    }
+
+    function testRemoveFromBlacklist() public {
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.prank(compliance);
+        token.removeFromBlacklist(user1);
+
+        assertFalse(token.isBlacklisted(user1));
+    }
+
+    function testRemoveFromBlacklistNotBlacklistedFails() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressNotBlacklisted.selector, user1)
+        );
+        vm.prank(compliance);
+        token.removeFromBlacklist(user1);
+    }
+
+    function testMintToBlacklistedFails() public {
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressBlacklisted.selector, user1)
+        );
+        vm.prank(processor);
+        token.mint(user1, 1000 * 10 ** 18);
+    }
+
+    function testTransferFromBlacklistedFails() public {
+        uint256 amount = 1000 * 10 ** 18;
+
+        vm.prank(processor);
+        token.mint(user1, amount);
+
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressBlacklisted.selector, user1)
+        );
+        vm.prank(user1);
+        token.transfer(user2, amount);
+    }
+
+    function testTransferToBlacklistedFails() public {
+        uint256 amount = 1000 * 10 ** 18;
+
+        vm.prank(processor);
+        token.mint(user1, amount);
+
+        vm.prank(compliance);
+        token.addToBlacklist(user2);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressBlacklisted.selector, user2)
+        );
+        vm.prank(user1);
+        token.transfer(user2, amount);
+    }
+
+    function testTransferFromByBlacklistedFails() public {
+        uint256 amount = 1000 * 10 ** 18;
+
+        vm.prank(processor);
+        token.mint(user1, amount);
+
+        vm.prank(user1);
+        token.approve(user2, amount);
+
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressBlacklisted.selector, user1)
+        );
+        vm.prank(user2);
+        token.transferFrom(user1, user2, amount);
+    }
+
+    function testBurnBlacklistedTokens() public {
+        uint256 amount = 1000 * 10 ** 18;
+
+        vm.prank(processor);
+        token.mint(user1, amount);
+
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.prank(compliance);
+        token.burnBlacklistedTokens(user1);
+
+        assertEq(token.balanceOf(user1), 0);
+        assertEq(token.totalSupply(), 0);
+    }
+
+    function testBurnBlacklistedTokensNotBlacklistedFails() public {
+        uint256 amount = 1000 * 10 ** 18;
+
+        vm.prank(processor);
+        token.mint(user1, amount);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.AddressNotBlacklisted.selector, user1)
+        );
+        vm.prank(compliance);
+        token.burnBlacklistedTokens(user1);
+    }
+
+    function testBurnBlacklistedTokensZeroBalanceFails() public {
+        vm.prank(compliance);
+        token.addToBlacklist(user1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(USDat.InsufficientBalance.selector, user1)
+        );
+        vm.prank(compliance);
+        token.burnBlacklistedTokens(user1);
+    }
+
+    function testGrantComplianceRole() public {
+        address newCompliance = makeAddr("newCompliance");
+
+        vm.prank(admin);
+        token.grantRole(token.COMPLIANCE_ROLE(), newCompliance);
+
+        assertTrue(token.hasRole(token.COMPLIANCE_ROLE(), newCompliance));
+    }
+
+    function testRevokeComplianceRole() public {
+        vm.prank(admin);
+        token.revokeRole(token.COMPLIANCE_ROLE(), compliance);
+
+        assertFalse(token.hasRole(token.COMPLIANCE_ROLE(), compliance));
     }
 }
