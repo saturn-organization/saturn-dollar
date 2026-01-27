@@ -8,8 +8,6 @@ import {IMTokenLike} from "@m-extensions/interfaces/IMTokenLike.sol";
 import {IUSDat} from "./IUSDat.sol";
 
 contract USDat is IUSDat, JMIExtension, ForcedTransferable {
-    /* ============ Whitelist Storage ============ */
-
     /// @custom:storage-location erc7201:Saturn.storage.Whitelist
     struct WhitelistStorage {
         bool isEnabled;
@@ -26,12 +24,24 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         }
     }
 
-    /* ============ Whitelist Variables ============ */
+    /// @custom:storage-location erc7201:Saturn.storage.Supply
+    struct SupplyStorage {
+        bool isEnabled;
+        uint256 cap;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("Saturn.storage.Supply")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _SUPPLY_STORAGE_LOCATION =
+        0xb1939d04e1ce3f8ab5c30deea2bae02b0819be9d63c48182a7a9963d4ad29200;
+
+    function _getSupplyStorage() private pure returns (SupplyStorage storage $) {
+        assembly {
+            $.slot := _SUPPLY_STORAGE_LOCATION
+        }
+    }
 
     /// @inheritdoc IUSDat
     bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
-
-    /* ============ Constructor ============ */
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address mToken_, address swapFacility_) JMIExtension(mToken_, swapFacility_) {
@@ -87,8 +97,6 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         emit RemovedFromWhitelist(account, block.timestamp);
     }
 
-    /* ============ Whitelist View Functions ============ */
-
     /// @inheritdoc IUSDat
     function isWhitelistEnabled() public view returns (bool) {
         return _getWhitelistStorage().isEnabled;
@@ -97,6 +105,40 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     /// @inheritdoc IUSDat
     function isWhitelisted(address account) public view returns (bool) {
         return _getWhitelistStorage().isWhitelisted[account];
+    }
+
+    /* ============ Supply Cap Functions ============ */
+
+    /// @inheritdoc IUSDat
+    function enableSupplyCap() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        SupplyStorage storage $ = _getSupplyStorage();
+        if ($.isEnabled) return;
+        $.isEnabled = true;
+        emit SupplyCapEnabled(block.timestamp);
+    }
+
+    /// @inheritdoc IUSDat
+    function disableSupplyCap() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        SupplyStorage storage $ = _getSupplyStorage();
+        if (!$.isEnabled) return;
+        $.isEnabled = false;
+        emit SupplyCapDisabled(block.timestamp);
+    }
+
+    /// @inheritdoc IUSDat
+    function setSupplyCap(uint256 newCap) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _getSupplyStorage().cap = newCap;
+        emit SupplyCapUpdated(newCap);
+    }
+
+    /// @inheritdoc IUSDat
+    function isSupplyCapEnabled() external view returns (bool) {
+        return _getSupplyStorage().isEnabled;
+    }
+
+    /// @inheritdoc IUSDat
+    function supplyCap() external view returns (uint256) {
+        return _getSupplyStorage().cap;
     }
 
     /* ============ External Functions ============ */
@@ -126,6 +168,7 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     function _beforeWrap(address account, address recipient, uint256 amount) internal view virtual override {
         _revertIfNotWhitelisted(account);
         _revertIfNotWhitelisted(recipient);
+        _revertIfSupplyCapExceeded(amount);
         super._beforeWrap(account, recipient, amount);
     }
 
@@ -138,6 +181,13 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         WhitelistStorage storage $ = _getWhitelistStorage();
         if ($.isEnabled && !$.isWhitelisted[account]) {
             revert AccountNotWhitelisted(account);
+        }
+    }
+
+    function _revertIfSupplyCapExceeded(uint256 amount) internal view {
+        SupplyStorage storage $ = _getSupplyStorage();
+        if ($.isEnabled && totalSupply() + amount > $.cap) {
+            revert SupplyCapExceeded(totalSupply(), amount, $.cap);
         }
     }
 

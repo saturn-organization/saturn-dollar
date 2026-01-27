@@ -26,6 +26,18 @@ interface IUSDat {
     /// @param timestamp The block timestamp when the account was removed.
     event RemovedFromWhitelist(address indexed account, uint256 timestamp);
 
+    /// @notice Emitted when the supply cap is enabled.
+    /// @param timestamp The block timestamp when the supply cap was enabled.
+    event SupplyCapEnabled(uint256 timestamp);
+
+    /// @notice Emitted when the supply cap is disabled.
+    /// @param timestamp The block timestamp when the supply cap was disabled.
+    event SupplyCapDisabled(uint256 timestamp);
+
+    /// @notice Emitted when the supply cap is updated.
+    /// @param newCap The new supply cap.
+    event SupplyCapUpdated(uint256 newCap);
+
     /* ============ Errors ============ */
 
     /// @notice Thrown when a zero address is provided during initialization.
@@ -34,6 +46,12 @@ interface IUSDat {
     /// @notice Thrown when an account is not whitelisted and the whitelist is enabled.
     /// @param account The address that is not whitelisted.
     error AccountNotWhitelisted(address account);
+
+    /// @notice Thrown when a mint would exceed the supply cap.
+    /// @param currentSupply The current total supply.
+    /// @param amount The amount being minted.
+    /// @param cap The supply cap.
+    error SupplyCapExceeded(uint256 currentSupply, uint256 amount, uint256 cap);
 
     /* ============ Whitelist Admin Functions ============ */
 
@@ -69,6 +87,29 @@ interface IUSDat {
     /// @param  account The address to check.
     /// @return True if the account is whitelisted, false otherwise.
     function isWhitelisted(address account) external view returns (bool);
+
+    /* ============ Supply Cap Functions ============ */
+
+    /// @notice Enables the supply cap.
+    /// @dev    Only callable by accounts with the DEFAULT_ADMIN_ROLE.
+    function enableSupplyCap() external;
+
+    /// @notice Disables the supply cap.
+    /// @dev    Only callable by accounts with the DEFAULT_ADMIN_ROLE.
+    function disableSupplyCap() external;
+
+    /// @notice Sets the supply cap for the token.
+    /// @dev    Only callable by accounts with the DEFAULT_ADMIN_ROLE.
+    /// @param  newCap The new supply cap.
+    function setSupplyCap(uint256 newCap) external;
+
+    /// @notice Returns whether the supply cap is currently enabled.
+    /// @return True if the supply cap is enabled, false otherwise.
+    function isSupplyCapEnabled() external view returns (bool);
+
+    /// @notice Returns the current supply cap.
+    /// @return The supply cap.
+    function supplyCap() external view returns (uint256);
 
     /* ============ Deposit/Withdraw Functions ============ */
 
