@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
-import {USDat} from "../src/USDat.sol"; // Adjust the path based on your Foundry project structure
+import {USDat} from "../src/USDatV1.sol"; // Adjust the path based on your Foundry project structure
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 

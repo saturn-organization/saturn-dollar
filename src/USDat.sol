@@ -1,112 +1,207 @@
-// SPDX-License-Identifier: MIT
-// Compatible with OpenZeppelin Contracts ^5.4.0
-pragma solidity ^0.8.27;
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.26;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import {
-    ERC20BurnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
-import {
-    ERC20PermitUpgradeable
-} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {JMIExtension} from "@m-extensions/projects/jmi/JMIExtension.sol";
+import {ForcedTransferable} from "@m-extensions/components/forcedTransferable/ForcedTransferable.sol";
+import {IMTokenLike} from "@m-extensions/interfaces/IMTokenLike.sol";
 
-contract USDat is
-    Initializable,
-    ERC20Upgradeable,
-    ERC20BurnableUpgradeable,
-    ReentrancyGuard,
-    AccessControlUpgradeable,
-    ERC20PermitUpgradeable,
-    UUPSUpgradeable
-{
-    using SafeERC20 for IERC20;
+import {IUSDat} from "./IUSDat.sol";
 
-    bytes32 public constant PROCESSOR_ROLE = keccak256("PROCESSOR_ROLE");
-    bytes32 public constant COMPLIANCE_ROLE = keccak256("COMPLIANCE_ROLE");
+contract USDat is IUSDat, JMIExtension, ForcedTransferable {
+    /// @custom:storage-location erc7201:Saturn.storage.Whitelist
+    struct WhitelistStorage {
+        bool isEnabled;
+        mapping(address account => bool) isWhitelisted;
+    }
 
-    mapping(address account => bool isBlacklisted) private _blacklisted;
+    // keccak256(abi.encode(uint256(keccak256("Saturn.storage.Whitelist")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _WHITELIST_STORAGE_LOCATION =
+        0x1d6c3b82f2027bd0b336e517c3a50a0483eb4d2c5cd82c6a491448d31b621000;
 
-    error AddressBlacklisted(address account);
-    error AddressNotBlacklisted(address account);
-    error InsufficientBalance(address account);
+    function _getWhitelistStorage() private pure returns (WhitelistStorage storage $) {
+        assembly {
+            $.slot := _WHITELIST_STORAGE_LOCATION
+        }
+    }
 
-    event Blacklisted(address indexed account);
-    event UnBlacklisted(address indexed account);
+    /// @custom:storage-location erc7201:Saturn.storage.Supply
+    struct SupplyStorage {
+        bool isEnabled;
+        uint256 cap;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("Saturn.storage.Supply")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _SUPPLY_STORAGE_LOCATION =
+        0xb1939d04e1ce3f8ab5c30deea2bae02b0819be9d63c48182a7a9963d4ad29200;
+
+    function _getSupplyStorage() private pure returns (SupplyStorage storage $) {
+        assembly {
+            $.slot := _SUPPLY_STORAGE_LOCATION
+        }
+    }
+
+    /// @inheritdoc IUSDat
+    bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address mToken_, address swapFacility_) JMIExtension(mToken_, swapFacility_) {
         _disableInitializers();
     }
 
-    function initialize(address defaultAdmin, address processor, address compliance) public initializer {
-        __ERC20_init("USDat", "USDat");
-        __ERC20Burnable_init();
-        __AccessControl_init();
-        __ERC20Permit_init("USDat");
+    function initialize(address yieldRecipient, address admin, address compliance, address processor)
+        public
+        initializer
+    {
+        if (yieldRecipient == address(0) || admin == address(0) || compliance == address(0) || processor == address(0))
+        {
+            revert ZeroAddress();
+        }
 
-        // Manages Upgrades
-        _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
-        // Manages minting new tokens
-        _grantRole(PROCESSOR_ROLE, processor);
-        // Manages compliance (blacklist)
-        _grantRole(COMPLIANCE_ROLE, compliance);
+        __JMIExtension_init("USDat", "USDat", yieldRecipient, admin, processor, compliance, compliance, processor);
+
+        __ForcedTransferable_init(compliance);
+        _grantRole(WHITELIST_MANAGER_ROLE, compliance);
     }
 
-    function _requireNotBlacklisted(address account) internal view {
-        require(!_blacklisted[account], AddressBlacklisted(account));
+    /* ============ Whitelist Functions ============ */
+
+    /// @inheritdoc IUSDat
+    function enableWhitelist() external onlyRole(WHITELIST_MANAGER_ROLE) {
+        WhitelistStorage storage $ = _getWhitelistStorage();
+        if ($.isEnabled) return;
+        $.isEnabled = true;
+        emit WhitelistEnabled(block.timestamp);
     }
 
-    function mint(address to, uint256 amount) public onlyRole(PROCESSOR_ROLE) {
-        _requireNotBlacklisted(to);
-        _mint(to, amount);
+    /// @inheritdoc IUSDat
+    function disableWhitelist() external onlyRole(WHITELIST_MANAGER_ROLE) {
+        WhitelistStorage storage $ = _getWhitelistStorage();
+        if (!$.isEnabled) return;
+        $.isEnabled = false;
+        emit WhitelistDisabled(block.timestamp);
     }
 
-    function rescueTokens(address token, uint256 amount, address to) external nonReentrant onlyRole(COMPLIANCE_ROLE) {
-        IERC20(token).safeTransfer(to, amount);
+    /// @inheritdoc IUSDat
+    function whitelist(address account) external onlyRole(WHITELIST_MANAGER_ROLE) {
+        WhitelistStorage storage $ = _getWhitelistStorage();
+        if ($.isWhitelisted[account]) return;
+        $.isWhitelisted[account] = true;
+        emit Whitelisted(account, block.timestamp);
     }
 
-    function transfer(address to, uint256 amount) public override returns (bool) {
-        _requireNotBlacklisted(msg.sender);
-        _requireNotBlacklisted(to);
-
-        return super.transfer(to, amount);
+    /// @inheritdoc IUSDat
+    function removeFromWhitelist(address account) external onlyRole(WHITELIST_MANAGER_ROLE) {
+        WhitelistStorage storage $ = _getWhitelistStorage();
+        if (!$.isWhitelisted[account]) return;
+        $.isWhitelisted[account] = false;
+        emit RemovedFromWhitelist(account, block.timestamp);
     }
 
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        _requireNotBlacklisted(from);
-        _requireNotBlacklisted(to);
-
-        return super.transferFrom(from, to, amount);
+    /// @inheritdoc IUSDat
+    function isWhitelistEnabled() public view returns (bool) {
+        return _getWhitelistStorage().isEnabled;
     }
 
-    function burnBlacklistedTokens(address account) public onlyRole(COMPLIANCE_ROLE) {
-        require(_blacklisted[account], AddressNotBlacklisted(account));
-        uint256 amount = balanceOf(account);
-        require(amount > 0, InsufficientBalance(account));
-        _burn(account, amount);
+    /// @inheritdoc IUSDat
+    function isWhitelisted(address account) public view returns (bool) {
+        return _getWhitelistStorage().isWhitelisted[account];
     }
 
-    function addToBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
-        require(!_blacklisted[account], AddressBlacklisted(account));
-        _blacklisted[account] = true;
-        emit Blacklisted(account);
+    /* ============ Supply Cap Functions ============ */
+
+    /// @inheritdoc IUSDat
+    function enableSupplyCap() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        SupplyStorage storage $ = _getSupplyStorage();
+        if ($.isEnabled) return;
+        $.isEnabled = true;
+        emit SupplyCapEnabled(block.timestamp);
     }
 
-    function removeFromBlacklist(address account) external onlyRole(COMPLIANCE_ROLE) {
-        require(_blacklisted[account], AddressNotBlacklisted(account));
-        _blacklisted[account] = false;
-        emit UnBlacklisted(account);
+    /// @inheritdoc IUSDat
+    function disableSupplyCap() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        SupplyStorage storage $ = _getSupplyStorage();
+        if (!$.isEnabled) return;
+        $.isEnabled = false;
+        emit SupplyCapDisabled(block.timestamp);
     }
 
-    function isBlacklisted(address account) external view returns (bool) {
-        return _blacklisted[account];
+    /// @inheritdoc IUSDat
+    function setSupplyCap(uint256 newCap) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _getSupplyStorage().cap = newCap;
+        emit SupplyCapUpdated(newCap);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    /// @inheritdoc IUSDat
+    function isSupplyCapEnabled() external view returns (bool) {
+        return _getSupplyStorage().isEnabled;
+    }
+
+    /// @inheritdoc IUSDat
+    function supplyCap() external view returns (uint256) {
+        return _getSupplyStorage().cap;
+    }
+
+    /* ============ External Functions ============ */
+
+    /// @inheritdoc IUSDat
+    function deposit(address asset, address recipient, uint256 amount) external {
+        if (asset == mToken) {
+            _wrap(msg.sender, recipient, amount);
+        } else {
+            _wrap(asset, msg.sender, recipient, amount);
+        }
+    }
+
+    /// @inheritdoc IUSDat
+    function withdraw(address recipient, uint256 amount) external {
+        _revertIfInsufficientAmount(amount);
+        _beforeUnwrap(msg.sender, amount);
+        _revertIfInsufficientBalance(msg.sender, amount);
+
+        _burn(msg.sender, amount);
+
+        IMTokenLike(mToken).transfer(recipient, amount);
+    }
+
+    /* ============ Internal Functions ============ */
+
+    function _beforeWrap(address account, address recipient, uint256 amount) internal view virtual override {
+        _revertIfNotWhitelisted(account);
+        _revertIfNotWhitelisted(recipient);
+        _revertIfSupplyCapExceeded(amount);
+        super._beforeWrap(account, recipient, amount);
+    }
+
+    function _beforeUnwrap(address account, uint256 amount) internal view virtual override {
+        _revertIfNotWhitelisted(account);
+        super._beforeUnwrap(account, amount);
+    }
+
+    function _revertIfNotWhitelisted(address account) internal view {
+        WhitelistStorage storage $ = _getWhitelistStorage();
+        if ($.isEnabled && !$.isWhitelisted[account]) {
+            revert AccountNotWhitelisted(account);
+        }
+    }
+
+    function _revertIfSupplyCapExceeded(uint256 amount) internal view {
+        SupplyStorage storage $ = _getSupplyStorage();
+        if ($.isEnabled && totalSupply() + amount > $.cap) {
+            revert SupplyCapExceeded(totalSupply(), amount, $.cap);
+        }
+    }
+
+    function _forceTransfer(address frozenAccount, address recipient, uint256 amount) internal override {
+        _revertIfNotFrozen(frozenAccount);
+        _revertIfInvalidRecipient(recipient);
+
+        emit Transfer(frozenAccount, recipient, amount);
+        emit ForcedTransfer(frozenAccount, recipient, msg.sender, amount);
+
+        if (amount == 0) return;
+
+        _revertIfInsufficientBalance(frozenAccount, amount);
+
+        _update(frozenAccount, recipient, amount);
+    }
 }
