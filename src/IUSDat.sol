@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 /**
  * @title  IUSDat
  * @notice Interface for the USDat token contract.
+ * @dev Deposit and withdraw happen through the M0 SwapFacility.
  */
 interface IUSDat {
     /* ============ Events ============ */
@@ -110,22 +111,4 @@ interface IUSDat {
     /// @notice Returns the current supply cap.
     /// @return The supply cap.
     function supplyCap() external view returns (uint256);
-
-    /* ============ Deposit/Withdraw Functions ============ */
-
-    /// @notice Deposit assets directly into the contract to mint USDat tokens.
-    /// @dev    For M token deposits, use the mToken address as the asset parameter.
-    ///         For other assets, the asset must be an allowed asset with sufficient cap.
-    ///         If whitelist is enabled, both the caller and recipient must be whitelisted.
-    /// @param  asset The address of the asset to deposit (use mToken address for M).
-    /// @param  recipient The address to receive USDat tokens.
-    /// @param  amount The amount of tokens to deposit (in asset decimals).
-    function deposit(address asset, address recipient, uint256 amount) external;
-
-    /// @notice Withdraw M tokens by burning USDat tokens.
-    /// @dev    Burns USDat from the caller and transfers M to the recipient.
-    ///         Only M can be withdrawn; other backing assets cannot be redeemed directly.
-    /// @param  recipient The address to receive M tokens.
-    /// @param  amount The amount of USDat to burn.
-    function withdraw(address recipient, uint256 amount) external;
 }
