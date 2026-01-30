@@ -143,6 +143,14 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
 
     /* ============ Internal Functions ============ */
 
+    /**
+     * @dev   Hook called before wrapping M or an allowed asset into USDat.
+     *        Enforces whitelist requirements for both the depositor and recipient,
+     *        and checks that the wrap amount does not exceed the supply cap.
+     * @param account   The address initiating the wrap (depositor).
+     * @param recipient The address that will receive the minted USDat tokens.
+     * @param amount    The amount of tokens being wrapped.
+     */
     function _beforeWrap(address account, address recipient, uint256 amount) internal view virtual override {
         _revertIfNotWhitelisted(account);
         _revertIfNotWhitelisted(recipient);
@@ -150,11 +158,22 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         super._beforeWrap(account, recipient, amount);
     }
 
+    /**
+     * @dev   Hook called before unwrapping USDat back into M.
+     *        Enforces whitelist requirements for the account burning tokens.
+     * @param account The address initiating the unwrap (burning USDat).
+     * @param amount  The amount of USDat tokens being unwrapped.
+     */
     function _beforeUnwrap(address account, uint256 amount) internal view virtual override {
         _revertIfNotWhitelisted(account);
         super._beforeUnwrap(account, amount);
     }
 
+    /**
+     * @dev   Reverts if the whitelist is enabled and the account is not whitelisted.
+     *        This check is bypassed when the whitelist feature is disabled.
+     * @param account The address to check for whitelist status.
+     */
     function _revertIfNotWhitelisted(address account) internal view {
         WhitelistStorage storage $ = _getWhitelistStorage();
         if ($.isEnabled && !$.isWhitelisted[account]) {
@@ -162,6 +181,11 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         }
     }
 
+    /**
+     * @dev   Reverts if the supply cap is enabled and minting `amount` would exceed it.
+     *        This check is bypassed when the supply cap feature is disabled.
+     * @param amount The amount of tokens to be minted.
+     */
     function _revertIfSupplyCapExceeded(uint256 amount) internal view {
         SupplyStorage storage $ = _getSupplyStorage();
         if ($.isEnabled && totalSupply() + amount > $.cap) {
@@ -169,6 +193,15 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         }
     }
 
+    /**
+     * @dev   Forcibly transfers tokens from a frozen account to a recipient.
+     *        Can only be called by an authorized compliance role (via ForcedTransferable).
+     *        Validates that the source account is frozen, the recipient is valid,
+     *        and the frozen account has sufficient balance.
+     * @param frozenAccount The frozen address from which tokens will be transferred.
+     * @param recipient     The address that will receive the tokens.
+     * @param amount        The amount of tokens to transfer.
+     */
     function _forceTransfer(address frozenAccount, address recipient, uint256 amount) internal override {
         _revertIfNotFrozen(frozenAccount);
         _revertIfInvalidRecipient(recipient);
