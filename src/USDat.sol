@@ -141,28 +141,6 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         return _getSupplyStorage().cap;
     }
 
-    /* ============ External Functions ============ */
-
-    /// @inheritdoc IUSDat
-    function deposit(address asset, address recipient, uint256 amount) external {
-        if (asset == mToken) {
-            _wrap(msg.sender, recipient, amount);
-        } else {
-            _wrap(asset, msg.sender, recipient, amount);
-        }
-    }
-
-    /// @inheritdoc IUSDat
-    function withdraw(address recipient, uint256 amount) external {
-        _revertIfInsufficientAmount(amount);
-        _beforeUnwrap(msg.sender, amount);
-        _revertIfInsufficientBalance(msg.sender, amount);
-
-        _burn(msg.sender, amount);
-
-        IMTokenLike(mToken).transfer(recipient, amount);
-    }
-
     /* ============ Internal Functions ============ */
 
     function _beforeWrap(address account, address recipient, uint256 amount) internal view virtual override {
