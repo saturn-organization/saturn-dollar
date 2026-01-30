@@ -7,5 +7,11 @@
   },
   "lib/m-extensions": {
     "rev": "381237440a0f95d7df95cdb63c87c14aa15c244e"
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "tag": {
+      "name": "v5.5.0",
+      "rev": "aa677e9d28ed78fc427ec47ba2baef2030c58e7c"
+    }
   }
 }
