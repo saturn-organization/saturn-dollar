@@ -3,7 +3,9 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IAccessControl} from "openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {
+    IAccessControl
+} from "openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {PausableUpgradeable} from "openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
 import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -24,15 +26,11 @@ contract USDatTest is Test {
 
     // Role constants
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
-    bytes32 public constant WHITELIST_MANAGER_ROLE =
-        keccak256("WHITELIST_MANAGER_ROLE");
-    bytes32 public constant FREEZE_MANAGER_ROLE =
-        keccak256("FREEZE_MANAGER_ROLE");
-    bytes32 public constant FORCED_TRANSFER_MANAGER_ROLE =
-        keccak256("FORCED_TRANSFER_MANAGER_ROLE");
+    bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
+    bytes32 public constant FREEZE_MANAGER_ROLE = keccak256("FREEZE_MANAGER_ROLE");
+    bytes32 public constant FORCED_TRANSFER_MANAGER_ROLE = keccak256("FORCED_TRANSFER_MANAGER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    bytes32 public constant YIELD_RECIPIENT_MANAGER_ROLE =
-        keccak256("YIELD_RECIPIENT_MANAGER_ROLE");
+    bytes32 public constant YIELD_RECIPIENT_MANAGER_ROLE = keccak256("YIELD_RECIPIENT_MANAGER_ROLE");
 
     // Test addresses
     address public admin = makeAddr("admin");
@@ -54,20 +52,12 @@ contract USDatTest is Test {
         swapFacility = new MockSwapFacility();
 
         // Deploy USDat
-        address implementation = address(
-            new USDat(address(mToken), address(swapFacility))
-        );
+        address implementation = address(new USDat(address(mToken), address(swapFacility)));
         usdat = USDat(
             UnsafeUpgrades.deployTransparentProxy(
                 implementation,
                 admin,
-                abi.encodeWithSelector(
-                    USDat.initialize.selector,
-                    yieldRecipient,
-                    admin,
-                    compliance,
-                    processor
-                )
+                abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, admin, compliance, processor)
             )
         );
 
@@ -103,78 +93,42 @@ contract USDatTest is Test {
     }
 
     function test_initialize_zeroYieldRecipient() external {
-        address impl = address(
-            new USDat(address(mToken), address(swapFacility))
-        );
+        address impl = address(new USDat(address(mToken), address(swapFacility)));
 
         vm.expectRevert(IUSDat.ZeroAddress.selector);
         UnsafeUpgrades.deployTransparentProxy(
-            impl,
-            admin,
-            abi.encodeWithSelector(
-                USDat.initialize.selector,
-                address(0),
-                admin,
-                compliance,
-                processor
-            )
+            impl, admin, abi.encodeWithSelector(USDat.initialize.selector, address(0), admin, compliance, processor)
         );
     }
 
     function test_initialize_zeroAdmin() external {
-        address impl = address(
-            new USDat(address(mToken), address(swapFacility))
-        );
+        address impl = address(new USDat(address(mToken), address(swapFacility)));
 
         vm.expectRevert(IUSDat.ZeroAddress.selector);
         UnsafeUpgrades.deployTransparentProxy(
             impl,
             admin,
-            abi.encodeWithSelector(
-                USDat.initialize.selector,
-                yieldRecipient,
-                address(0),
-                compliance,
-                processor
-            )
+            abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, address(0), compliance, processor)
         );
     }
 
     function test_initialize_zeroCompliance() external {
-        address impl = address(
-            new USDat(address(mToken), address(swapFacility))
-        );
+        address impl = address(new USDat(address(mToken), address(swapFacility)));
 
         vm.expectRevert(IUSDat.ZeroAddress.selector);
         UnsafeUpgrades.deployTransparentProxy(
-            impl,
-            admin,
-            abi.encodeWithSelector(
-                USDat.initialize.selector,
-                yieldRecipient,
-                admin,
-                address(0),
-                processor
-            )
+            impl, admin, abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, admin, address(0), processor)
         );
     }
 
     function test_initialize_zeroProcessor() external {
-        address impl = address(
-            new USDat(address(mToken), address(swapFacility))
-        );
+        address impl = address(new USDat(address(mToken), address(swapFacility)));
 
         vm.expectRevert(IUSDat.ZeroAddress.selector);
         UnsafeUpgrades.deployTransparentProxy(
             impl,
             admin,
-            abi.encodeWithSelector(
-                USDat.initialize.selector,
-                yieldRecipient,
-                admin,
-                compliance,
-                address(0)
-            )
+            abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, admin, compliance, address(0))
         );
     }
 
@@ -200,9 +154,7 @@ contract USDatTest is Test {
     function test_enableWhitelist_onlyWhitelistManager() external {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                WHITELIST_MANAGER_ROLE
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, WHITELIST_MANAGER_ROLE
             )
         );
 
@@ -242,9 +194,7 @@ contract USDatTest is Test {
     function test_disableWhitelist_onlyWhitelistManager() external {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                WHITELIST_MANAGER_ROLE
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, WHITELIST_MANAGER_ROLE
             )
         );
 
@@ -281,9 +231,7 @@ contract USDatTest is Test {
     function test_whitelist_onlyWhitelistManager() external {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                WHITELIST_MANAGER_ROLE
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, WHITELIST_MANAGER_ROLE
             )
         );
 
@@ -323,9 +271,7 @@ contract USDatTest is Test {
     function test_removeFromWhitelist_onlyWhitelistManager() external {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                WHITELIST_MANAGER_ROLE
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, WHITELIST_MANAGER_ROLE
             )
         );
 
@@ -361,11 +307,7 @@ contract USDatTest is Test {
 
     function test_enableSupplyCap_onlyAdmin() external {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                DEFAULT_ADMIN_ROLE
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, DEFAULT_ADMIN_ROLE)
         );
 
         vm.prank(alice);
@@ -403,11 +345,7 @@ contract USDatTest is Test {
 
     function test_disableSupplyCap_onlyAdmin() external {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                DEFAULT_ADMIN_ROLE
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, DEFAULT_ADMIN_ROLE)
         );
 
         vm.prank(alice);
@@ -442,11 +380,7 @@ contract USDatTest is Test {
 
     function test_setSupplyCap_onlyAdmin() external {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                DEFAULT_ADMIN_ROLE
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, DEFAULT_ADMIN_ROLE)
         );
 
         vm.prank(alice);
@@ -512,9 +446,7 @@ contract USDatTest is Test {
         swapFacility.setMsgSender(alice);
 
         // Wrap should fail - alice (depositor) is not whitelisted
-        vm.expectRevert(
-            abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
 
         vm.prank(address(swapFacility));
         usdat.wrap(alice, amount);
@@ -538,9 +470,7 @@ contract USDatTest is Test {
         swapFacility.setMsgSender(alice);
 
         // Should fail because bob (recipient) is not whitelisted
-        vm.expectRevert(
-            abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, bob)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, bob));
 
         vm.prank(address(swapFacility));
         usdat.wrap(bob, amount);
@@ -618,14 +548,7 @@ contract USDatTest is Test {
         mToken.setBalanceOf(address(swapFacility), amount);
 
         // Should fail
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IUSDat.SupplyCapExceeded.selector,
-                0,
-                amount,
-                cap
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.SupplyCapExceeded.selector, 0, amount, cap));
 
         vm.prank(address(swapFacility));
         usdat.wrap(alice, amount);
@@ -653,14 +576,7 @@ contract USDatTest is Test {
         // Second wrap should fail
         mToken.setBalanceOf(address(swapFacility), secondAmount);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IUSDat.SupplyCapExceeded.selector,
-                firstAmount,
-                secondAmount,
-                cap
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.SupplyCapExceeded.selector, firstAmount, secondAmount, cap));
 
         vm.prank(address(swapFacility));
         usdat.wrap(bob, secondAmount);
@@ -746,9 +662,7 @@ contract USDatTest is Test {
         swapFacility.setMsgSender(alice);
 
         // Unwrap should fail
-        vm.expectRevert(
-            abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
 
         vm.prank(address(swapFacility));
         usdat.unwrap(alice, amount);
@@ -759,9 +673,7 @@ contract USDatTest is Test {
     function test_forceTransfer_onlyForcedTransferManager() external {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                FORCED_TRANSFER_MANAGER_ROLE
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, FORCED_TRANSFER_MANAGER_ROLE
             )
         );
 
@@ -776,9 +688,7 @@ contract USDatTest is Test {
         usdat.wrap(bob, 1000e6);
 
         // Try to force transfer from non-frozen account
-        vm.expectRevert(
-            abi.encodeWithSelector(IFreezable.AccountNotFrozen.selector, bob)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountNotFrozen.selector, bob));
 
         vm.prank(compliance);
         usdat.forceTransfer(bob, carol, 100e6);
@@ -794,12 +704,7 @@ contract USDatTest is Test {
         usdat.freeze(bob);
 
         // Try to force transfer to zero address
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IERC20Extended.InvalidRecipient.selector,
-                address(0)
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IERC20Extended.InvalidRecipient.selector, address(0)));
 
         vm.prank(compliance);
         usdat.forceTransfer(bob, address(0), 100e6);
@@ -815,14 +720,7 @@ contract USDatTest is Test {
         usdat.freeze(bob);
 
         // Try to force transfer more than balance
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IMExtension.InsufficientBalance.selector,
-                bob,
-                100e6,
-                200e6
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IMExtension.InsufficientBalance.selector, bob, 100e6, 200e6));
 
         vm.prank(compliance);
         usdat.forceTransfer(bob, carol, 200e6);
@@ -843,12 +741,7 @@ contract USDatTest is Test {
 
         // Force transfer
         vm.expectEmit(true, true, true, true);
-        emit IForcedTransferable.ForcedTransfer(
-            bob,
-            carol,
-            compliance,
-            transferAmount
-        );
+        emit IForcedTransferable.ForcedTransfer(bob, carol, compliance, transferAmount);
 
         vm.prank(compliance);
         usdat.forceTransfer(bob, carol, transferAmount);
@@ -946,11 +839,7 @@ contract USDatTest is Test {
 
     function test_freeze_onlyFreezeManager() external {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                alice,
-                FREEZE_MANAGER_ROLE
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, FREEZE_MANAGER_ROLE)
         );
 
         vm.prank(alice);
@@ -979,9 +868,7 @@ contract USDatTest is Test {
         usdat.freeze(alice);
 
         // Try to transfer
-        vm.expectRevert(
-            abi.encodeWithSelector(IFreezable.AccountFrozen.selector, alice)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountFrozen.selector, alice));
 
         vm.prank(alice);
         usdat.transfer(bob, 100e6);
@@ -1089,9 +976,7 @@ contract USDatTest is Test {
         swapFacility.setMsgSender(alice);
 
         // Should fail on whitelist check first (alice is not whitelisted)
-        vm.expectRevert(
-            abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
 
         vm.prank(address(swapFacility));
         usdat.wrap(alice, amount);
@@ -1113,10 +998,7 @@ contract USDatTest is Test {
         assertFalse(usdat.isWhitelisted(account));
     }
 
-    function testFuzz_supplyCap_enforcement(
-        uint256 cap,
-        uint256 amount
-    ) external {
+    function testFuzz_supplyCap_enforcement(uint256 cap, uint256 amount) external {
         cap = bound(cap, 1, type(uint128).max);
         amount = bound(amount, 1, type(uint128).max);
 
@@ -1129,14 +1011,7 @@ contract USDatTest is Test {
         mToken.setBalanceOf(address(swapFacility), amount);
 
         if (amount > cap) {
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    IUSDat.SupplyCapExceeded.selector,
-                    0,
-                    amount,
-                    cap
-                )
-            );
+            vm.expectRevert(abi.encodeWithSelector(IUSDat.SupplyCapExceeded.selector, 0, amount, cap));
         }
 
         vm.prank(address(swapFacility));
