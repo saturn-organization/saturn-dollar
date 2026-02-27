@@ -9,7 +9,6 @@ import {
 import {PausableUpgradeable} from "openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
 import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {IERC20Extended} from "common/src/interfaces/IERC20Extended.sol";
 import {MockM, MockSwapFacility, MockRegistrar, MockERC20} from "m-extensions/test/utils/Mocks.sol";
 import {IForcedTransferable} from "@m-extensions/components/forcedTransferable/IForcedTransferable.sol";
 import {IFreezable} from "@m-extensions/components/freezable/IFreezable.sol";
@@ -704,7 +703,7 @@ contract USDatTest is Test {
         usdat.freeze(bob);
 
         // Try to force transfer to zero address
-        vm.expectRevert(abi.encodeWithSelector(IERC20Extended.InvalidRecipient.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("InvalidRecipient(address)")), address(0)));
 
         vm.prank(compliance);
         usdat.forceTransfer(bob, address(0), 100e6);
