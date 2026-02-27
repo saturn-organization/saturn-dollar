@@ -10,7 +10,7 @@ import {PausableUpgradeable} from "openzeppelin-contracts-upgradeable/contracts/
 import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {IERC20Extended} from "common/src/interfaces/IERC20Extended.sol";
-import {MockM, MockSwapFacility, MockRegistrar} from "m-extensions/test/utils/Mocks.sol";
+import {MockM, MockSwapFacility, MockRegistrar, MockERC20} from "m-extensions/test/utils/Mocks.sol";
 import {IForcedTransferable} from "@m-extensions/components/forcedTransferable/IForcedTransferable.sol";
 import {IFreezable} from "@m-extensions/components/freezable/IFreezable.sol";
 import {IMExtension} from "@m-extensions/interfaces/IMExtension.sol";
@@ -980,6 +980,123 @@ contract USDatTest is Test {
 
         vm.prank(address(swapFacility));
         usdat.wrap(alice, amount);
+    }
+
+    /* ============ JMI Wrap (via SwapFacility) Whitelist Tests ============ */
+
+    function test_wrapJMI_whitelistDisabled() external {
+        uint256 amount = 1_000e6;
+
+        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        vm.prank(processor);
+        usdat.setAssetCap(address(usdc), type(uint256).max);
+
+        // Give USDC to swap facility
+        usdc.mint(address(swapFacility), amount);
+
+        // Approve USDat to spend USDC from swap facility
+        vm.prank(address(swapFacility));
+        usdc.approve(address(usdat), amount);
+
+        // JMI wrap should succeed without whitelist
+        vm.prank(address(swapFacility));
+        usdat.wrap(address(usdc), alice, amount);
+
+        assertEq(usdat.balanceOf(alice), amount);
+    }
+
+    function test_wrapJMI_whitelistEnabled_accountWhitelisted() external {
+        uint256 amount = 1_000e6;
+
+        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        vm.prank(processor);
+        usdat.setAssetCap(address(usdc), type(uint256).max);
+
+        // Enable whitelist and whitelist alice
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        vm.prank(compliance);
+        usdat.whitelist(alice);
+
+        // Give USDC to swap facility
+        usdc.mint(address(swapFacility), amount);
+
+        // Approve USDat to spend USDC from swap facility
+        vm.prank(address(swapFacility));
+        usdc.approve(address(usdat), amount);
+
+        // Set msgSender to alice (the depositor)
+        swapFacility.setMsgSender(alice);
+
+        // JMI wrap should succeed
+        vm.prank(address(swapFacility));
+        usdat.wrap(address(usdc), alice, amount);
+
+        assertEq(usdat.balanceOf(alice), amount);
+    }
+
+    function test_wrapJMI_whitelistEnabled_accountNotWhitelisted() external {
+        uint256 amount = 1_000e6;
+
+        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        vm.prank(processor);
+        usdat.setAssetCap(address(usdc), type(uint256).max);
+
+        // Enable whitelist but don't whitelist alice
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        // Give USDC to swap facility
+        usdc.mint(address(swapFacility), amount);
+
+        // Approve USDat to spend USDC from swap facility
+        vm.prank(address(swapFacility));
+        usdc.approve(address(usdat), amount);
+
+        // Set msgSender to alice (the depositor, not whitelisted)
+        swapFacility.setMsgSender(alice);
+
+        // JMI wrap should fail - alice (depositor) is not whitelisted
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
+
+        vm.prank(address(swapFacility));
+        usdat.wrap(address(usdc), alice, amount);
+    }
+
+    function test_wrapJMI_whitelistEnabled_recipientNotWhitelisted() external {
+        uint256 amount = 1_000e6;
+
+        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        vm.prank(processor);
+        usdat.setAssetCap(address(usdc), type(uint256).max);
+
+        // Enable whitelist and whitelist alice but not bob
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        vm.prank(compliance);
+        usdat.whitelist(alice);
+
+        // Give USDC to swap facility
+        usdc.mint(address(swapFacility), amount);
+
+        // Approve USDat to spend USDC from swap facility
+        vm.prank(address(swapFacility));
+        usdc.approve(address(usdat), amount);
+
+        // Set msgSender to alice (whitelisted)
+        swapFacility.setMsgSender(alice);
+
+        // JMI wrap should fail - bob (recipient) is not whitelisted
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, bob));
+
+        vm.prank(address(swapFacility));
+        usdat.wrap(address(usdc), bob, amount);
     }
 
     /* ============ Fuzz Tests ============ */
