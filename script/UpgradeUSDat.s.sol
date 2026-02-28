@@ -31,11 +31,12 @@ contract UpgradeUSDat is Script {
         console.log("New Implementation:", newImplementation);
 
         // Upgrade proxy to new implementation (no initializer call needed)
-        ProxyAdmin(PROXY_ADMIN).upgradeAndCall(
-            ITransparentUpgradeableProxy(PROXY),
-            newImplementation,
-            "" // empty bytes - no initializer to call
-        );
+        ProxyAdmin(PROXY_ADMIN)
+            .upgradeAndCall(
+                ITransparentUpgradeableProxy(PROXY),
+                newImplementation,
+                "" // empty bytes - no initializer to call
+            );
 
         vm.stopBroadcast();
 
