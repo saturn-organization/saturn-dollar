@@ -41,9 +41,6 @@ interface IUSDat {
 
     /* ============ Errors ============ */
 
-    /// @notice Thrown when a zero address is provided during initialization.
-    error ZeroAddress();
-
     /// @notice Thrown when an account is not whitelisted and the whitelist is enabled.
     /// @param account The address that is not whitelisted.
     error AccountNotWhitelisted(address account);
