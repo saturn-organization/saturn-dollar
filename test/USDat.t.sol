@@ -87,8 +87,6 @@ contract USDatTest is Test {
 
         // Check initial state
         assertFalse(usdat.isWhitelistEnabled());
-        assertFalse(usdat.isSupplyCapEnabled());
-        assertEq(usdat.supplyCap(), 0);
     }
 
     function test_initialize_cannotReinitialize() external {
@@ -250,109 +248,6 @@ contract USDatTest is Test {
         assertFalse(usdat.isWhitelisted(alice));
     }
 
-    /* ============ Supply Cap Enable/Disable Tests ============ */
-
-    function test_enableSupplyCap() external {
-        assertFalse(usdat.isSupplyCapEnabled());
-
-        vm.expectEmit(true, true, true, true);
-        emit IUSDat.SupplyCapEnabled(block.timestamp);
-
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        assertTrue(usdat.isSupplyCapEnabled());
-    }
-
-    function test_enableSupplyCap_onlyAdmin() external {
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, DEFAULT_ADMIN_ROLE)
-        );
-
-        vm.prank(alice);
-        usdat.enableSupplyCap();
-    }
-
-    function test_enableSupplyCap_idempotent() external {
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        assertTrue(usdat.isSupplyCapEnabled());
-
-        // Should not emit event when already enabled
-        vm.recordLogs();
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        assertEq(vm.getRecordedLogs().length, 0);
-        assertTrue(usdat.isSupplyCapEnabled());
-    }
-
-    function test_disableSupplyCap() external {
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-        assertTrue(usdat.isSupplyCapEnabled());
-
-        vm.expectEmit(true, true, true, true);
-        emit IUSDat.SupplyCapDisabled(block.timestamp);
-
-        vm.prank(admin);
-        usdat.disableSupplyCap();
-
-        assertFalse(usdat.isSupplyCapEnabled());
-    }
-
-    function test_disableSupplyCap_onlyAdmin() external {
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, DEFAULT_ADMIN_ROLE)
-        );
-
-        vm.prank(alice);
-        usdat.disableSupplyCap();
-    }
-
-    function test_disableSupplyCap_idempotent() external {
-        assertFalse(usdat.isSupplyCapEnabled());
-
-        // Should not emit event when already disabled
-        vm.recordLogs();
-        vm.prank(admin);
-        usdat.disableSupplyCap();
-
-        assertEq(vm.getRecordedLogs().length, 0);
-        assertFalse(usdat.isSupplyCapEnabled());
-    }
-
-    /* ============ Supply Cap Set Tests ============ */
-
-    function test_setSupplyCap() external {
-        uint256 newCap = 1_000_000e6;
-
-        vm.expectEmit(true, true, true, true);
-        emit IUSDat.SupplyCapUpdated(newCap);
-
-        vm.prank(admin);
-        usdat.setSupplyCap(newCap);
-
-        assertEq(usdat.supplyCap(), newCap);
-    }
-
-    function test_setSupplyCap_onlyAdmin() external {
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, DEFAULT_ADMIN_ROLE)
-        );
-
-        vm.prank(alice);
-        usdat.setSupplyCap(1_000_000e6);
-    }
-
-    function testFuzz_setSupplyCap(uint256 newCap) external {
-        vm.prank(admin);
-        usdat.setSupplyCap(newCap);
-
-        assertEq(usdat.supplyCap(), newCap);
-    }
-
     /* ============ Wrap with Whitelist Tests ============ */
 
     function test_wrap_whitelistDisabled() external {
@@ -433,112 +328,6 @@ contract USDatTest is Test {
 
         vm.prank(address(swapFacility));
         usdat.wrap(bob, amount);
-    }
-
-    /* ============ Wrap with Supply Cap Tests ============ */
-
-    function test_wrap_supplyCapDisabled() external {
-        uint256 amount = 1_000_000e6;
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Should succeed without supply cap
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrap_supplyCapEnabled_underCap() external {
-        uint256 cap = 1_000_000e6;
-        uint256 amount = 500_000e6;
-
-        // Enable supply cap
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Should succeed
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrap_supplyCapEnabled_atCap() external {
-        uint256 cap = 1_000_000e6;
-
-        // Enable supply cap
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), cap);
-
-        // Should succeed at exactly cap
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, cap);
-
-        assertEq(usdat.balanceOf(alice), cap);
-        assertEq(usdat.totalSupply(), cap);
-    }
-
-    function test_wrap_supplyCapEnabled_exceedsCap() external {
-        uint256 cap = 1_000_000e6;
-        uint256 amount = cap + 1;
-
-        // Enable supply cap
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Should fail
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.SupplyCapExceeded.selector, 0, amount, cap));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-    }
-
-    function test_wrap_supplyCapEnabled_secondWrapExceedsCap() external {
-        uint256 cap = 1_000_000e6;
-        uint256 firstAmount = 600_000e6;
-        uint256 secondAmount = 500_000e6;
-
-        // Enable supply cap
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        // First wrap
-        mToken.setBalanceOf(address(swapFacility), firstAmount);
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, firstAmount);
-
-        assertEq(usdat.totalSupply(), firstAmount);
-
-        // Second wrap should fail
-        mToken.setBalanceOf(address(swapFacility), secondAmount);
-
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.SupplyCapExceeded.selector, firstAmount, secondAmount, cap));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, secondAmount);
     }
 
     /* ============ Unwrap with Whitelist Tests ============ */
@@ -881,66 +670,6 @@ contract USDatTest is Test {
         usdat.transfer(bob, 100e6);
     }
 
-    /* ============ Combined Whitelist + Supply Cap Tests ============ */
-
-    function test_wrap_whitelistAndSupplyCapEnabled() external {
-        uint256 cap = 1_000_000e6;
-        uint256 amount = 500_000e6;
-
-        // Enable both features
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        vm.prank(compliance);
-        usdat.whitelist(alice);
-
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Set msgSender to alice (the depositor)
-        swapFacility.setMsgSender(alice);
-
-        // Should succeed
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrap_whitelistFailsBeforeSupplyCapCheck() external {
-        uint256 cap = 100e6;
-        uint256 amount = 500e6; // Exceeds cap
-
-        // Enable both features
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-        // Don't whitelist alice
-
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Set msgSender to alice (depositor, not whitelisted)
-        swapFacility.setMsgSender(alice);
-
-        // Should fail on whitelist check first (alice is not whitelisted)
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-    }
-
     /* ============ JMI Wrap (via SwapFacility) Whitelist Tests ============ */
 
     function test_wrapJMI_whitelistDisabled() external {
@@ -1072,29 +801,5 @@ contract USDatTest is Test {
         vm.prank(compliance);
         usdat.removeFromWhitelist(account);
         assertFalse(usdat.isWhitelisted(account));
-    }
-
-    function testFuzz_supplyCap_enforcement(uint256 cap, uint256 amount) external {
-        cap = bound(cap, 1, type(uint128).max);
-        amount = bound(amount, 1, type(uint128).max);
-
-        vm.prank(admin);
-        usdat.enableSupplyCap();
-
-        vm.prank(admin);
-        usdat.setSupplyCap(cap);
-
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        if (amount > cap) {
-            vm.expectRevert(abi.encodeWithSelector(IUSDat.SupplyCapExceeded.selector, 0, amount, cap));
-        }
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        if (amount <= cap) {
-            assertEq(usdat.balanceOf(alice), amount);
-        }
     }
 }
