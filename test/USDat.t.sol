@@ -91,46 +91,6 @@ contract USDatTest is Test {
         assertEq(usdat.supplyCap(), 0);
     }
 
-    function test_initialize_zeroYieldRecipient() external {
-        address impl = address(new USDat(address(mToken), address(swapFacility)));
-
-        vm.expectRevert(IUSDat.ZeroAddress.selector);
-        UnsafeUpgrades.deployTransparentProxy(
-            impl, admin, abi.encodeWithSelector(USDat.initialize.selector, address(0), admin, compliance, processor)
-        );
-    }
-
-    function test_initialize_zeroAdmin() external {
-        address impl = address(new USDat(address(mToken), address(swapFacility)));
-
-        vm.expectRevert(IUSDat.ZeroAddress.selector);
-        UnsafeUpgrades.deployTransparentProxy(
-            impl,
-            admin,
-            abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, address(0), compliance, processor)
-        );
-    }
-
-    function test_initialize_zeroCompliance() external {
-        address impl = address(new USDat(address(mToken), address(swapFacility)));
-
-        vm.expectRevert(IUSDat.ZeroAddress.selector);
-        UnsafeUpgrades.deployTransparentProxy(
-            impl, admin, abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, admin, address(0), processor)
-        );
-    }
-
-    function test_initialize_zeroProcessor() external {
-        address impl = address(new USDat(address(mToken), address(swapFacility)));
-
-        vm.expectRevert(IUSDat.ZeroAddress.selector);
-        UnsafeUpgrades.deployTransparentProxy(
-            impl,
-            admin,
-            abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, admin, compliance, address(0))
-        );
-    }
-
     function test_initialize_cannotReinitialize() external {
         vm.expectRevert();
         usdat.initialize(yieldRecipient, admin, compliance, processor);

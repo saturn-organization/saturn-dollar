@@ -52,11 +52,6 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         public
         initializer
     {
-        if (yieldRecipient == address(0) || admin == address(0) || compliance == address(0) || processor == address(0))
-        {
-            revert ZeroAddress();
-        }
-
         __JMIExtension_init("USDat", "USDat", yieldRecipient, admin, processor, compliance, compliance, processor);
 
         __ForcedTransferable_init(compliance);
