@@ -144,7 +144,7 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     /* ============ Internal Functions ============ */
 
     /**
-     * @dev   Hook called before wrapping M or an allowed asset into USDat.
+     * @dev   Hook called before wrapping M into USDat.
      *        Enforces whitelist requirements for both the depositor and recipient,
      *        and checks that the wrap amount does not exceed the supply cap.
      * @param account   The address initiating the wrap (depositor).
@@ -156,6 +156,27 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
         _revertIfNotWhitelisted(recipient);
         _revertIfSupplyCapExceeded(amount);
         super._beforeWrap(account, recipient, amount);
+    }
+
+    /**
+     * @dev   Hook called before wrapping an allowed asset (via JMI) into USDat.
+     *        Enforces whitelist requirements for both the depositor and recipient,
+     *        and checks that the wrap amount does not exceed the supply cap.
+     * @param asset     The address of the asset being wrapped.
+     * @param account   The address initiating the wrap (depositor).
+     * @param recipient The address that will receive the minted USDat tokens.
+     * @param amount    The amount of tokens being wrapped.
+     */
+    function _beforeWrap(address asset, address account, address recipient, uint256 amount)
+        internal
+        view
+        virtual
+        override
+    {
+        _revertIfNotWhitelisted(account);
+        _revertIfNotWhitelisted(recipient);
+        _revertIfSupplyCapExceeded(amount);
+        super._beforeWrap(asset, account, recipient, amount);
     }
 
     /**
