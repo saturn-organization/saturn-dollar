@@ -13,7 +13,7 @@ contract UpgradeUSDat is Script {
     address constant PROXY_ADMIN = 0xcf1072DA5f0D127AEf99136489BAd08bFa3D1A7D;
 
     function run() public {
-        address deployer = vm.addr(vm.envUint("PRIVATE_KEY"));
+        address admin = vm.addr(vm.envUint("ADMIN_PRIVATE_KEY"));
 
         // Constructor args for new implementation
         address mToken = vm.envAddress("M_TOKEN");
@@ -22,21 +22,20 @@ contract UpgradeUSDat is Script {
         console.log("Upgrading USDat...");
         console.log("Proxy:", PROXY);
         console.log("ProxyAdmin:", PROXY_ADMIN);
-        console.log("Deployer/Admin:", deployer);
+        console.log("Admin:", admin);
 
-        vm.startBroadcast(deployer);
+        vm.startBroadcast(admin);
 
         // Deploy new implementation
         address newImplementation = address(new USDat(mToken, swapFacility));
         console.log("New Implementation:", newImplementation);
 
         // Upgrade proxy to new implementation (no initializer call needed)
-        ProxyAdmin(PROXY_ADMIN)
-            .upgradeAndCall(
-                ITransparentUpgradeableProxy(PROXY),
-                newImplementation,
-                "" // empty bytes - no initializer to call
-            );
+        ProxyAdmin(PROXY_ADMIN).upgradeAndCall(
+            ITransparentUpgradeableProxy(PROXY),
+            newImplementation,
+            "" // empty bytes - no initializer to call
+        );
 
         vm.stopBroadcast();
 
