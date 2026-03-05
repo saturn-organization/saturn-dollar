@@ -11,4 +11,5 @@ out/
 docs/
 
 # Dotenv file
-.env
+.env.local
+.env.production
