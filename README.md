@@ -108,18 +108,23 @@ audited source.
 ### Run it
 
 ```bash
-git checkout 8735152da4d5182f34cf29771757737d33894064
 bash verify.sh          # reads RPC_URL, M_TOKEN, SWAP_FACILITY from .env.production
 ```
+
+No checkout required: `verify.sh` first runs a read-only `git diff` to confirm
+the source in your tree is byte-identical to the audited commit, then builds and
+compares. (It does not move your checkout or modify the repo.)
 
 Expected output:
 
 ```
-commit (HEAD)        : 8735152da4d5182f34cf29771757737d33894064
-audit commit         : 8735152da4d5182f34cf29771757737d33894064
-local  code hash     : 0x5cc574845a8fd858923a985ab3c6417713aa473b0aafe6c8e0081a101bf2bb68
-production code hash : 0x5cc574845a8fd858923a985ab3c6417713aa473b0aafe6c8e0081a101bf2bb68
-MATCH - mainnet 0x17cac25c6d6bbcb592837fea083a5c8eb4d1e52e runs the audited code
+  network              : Ethereum mainnet (chain id 1)
+  implementation       : 0x17cac25c6d6bbcb592837fea083a5c8eb4d1e52e
+  audited commit       : 8735152da4d5182f34cf29771757737d33894064  (source verified identical)
+  local  code hash     : 0x5cc574845a8fd858923a985ab3c6417713aa473b0aafe6c8e0081a101bf2bb68
+  production code hash : 0x5cc574845a8fd858923a985ab3c6417713aa473b0aafe6c8e0081a101bf2bb68
+
+  MATCH - mainnet 0x17cac25c6d6bbcb592837fea083a5c8eb4d1e52e runs the audited code (commit 8735152da4d5182f34cf29771757737d33894064)
 ```
 
 ### Reference values
@@ -137,9 +142,10 @@ MATCH - mainnet 0x17cac25c6d6bbcb592837fea083a5c8eb4d1e52e runs the audited code
   local EVM and prints `address(impl).codehash`. The local deploy links the two
   immutables exactly as mainnet did, so the hash is directly comparable to the
   on-chain `EXTCODEHASH` — no byte-diffing or immutable handling required.
-- **`verify.sh`** prints the current commit, gets that local hash, fetches the
-  production hash via `cast codehash`, and asserts all three match (commit,
-  local hash, production hash).
+- **`verify.sh`** confirms — with a read-only `git diff` — that the source here
+  is identical to the audited commit, gets that local hash, fetches the
+  production hash via `cast codehash`, and asserts the two hashes match. No
+  checkout or other state-changing git command is used.
 
 The runtime code hash is fully determined by *(audited source + compiler
 settings + the two immutable addresses)*. A match therefore proves the deployed
