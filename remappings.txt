@@ -1,1 +1,2 @@
-@m-extensions/=lib/m-extensions/src/
+@pyusdx/=lib/PYUSDX/src/
+@m-extensions/=lib/PYUSDX/lib/evm-m-extensions/src/
