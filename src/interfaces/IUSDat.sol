@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.26;
+pragma solidity ^0.8.34;
 
 /**
  * @title  IUSDat
  * @notice Interface for the USDat token contract.
- * @dev Deposit and withdraw happen through the M0 SwapFacility.
+ * @dev Deposit and withdraw happen through the PYUSDX SwapFacility.
  */
 interface IUSDat {
     /* ============ Events ============ */
@@ -32,6 +32,17 @@ interface IUSDat {
     /// @notice Thrown when an account is not whitelisted and the whitelist is enabled.
     /// @param account The address that is not whitelisted.
     error AccountNotWhitelisted(address account);
+
+    /// @notice Thrown by `pinVersion`/`unpinVersion` — version-pinning is disabled for USDat
+    ///         (it sits behind a TransparentUpgradeableProxy, not a beacon proxy).
+    error VersionPinningDisabled();
+
+    /// @notice Thrown by `migrate` when the held M balance does not equal the M-backed portion
+    ///         (`totalSupply - totalAssets`), i.e. the pre-upgrade `claimYield()` was not run and
+    ///         unrealized M yield remains. Registering it would over-back the token.
+    /// @param  held    The M balance the contract holds.
+    /// @param  backing The expected M-backed portion (`totalSupply - totalAssets`).
+    error MReservesMismatch(uint256 held, uint256 backing);
 
     /* ============ Whitelist Admin Functions ============ */
 
@@ -67,4 +78,16 @@ interface IUSDat {
     /// @param  account The address to check.
     /// @return True if the account is whitelisted, false otherwise.
     function isWhitelisted(address account) external view returns (bool);
+
+    /* ============ Migration ============ */
+
+    /// @notice One-shot migration run immediately after the JMIExtension → MultiMint implementation
+    ///         upgrade (atomically, as the `data` of `ProxyAdmin.upgradeAndCall`).
+    /// @dev    Stops M earning (self opt-out) and registers the held M balance as a replaceable MultiMint
+    ///         alt-asset (bumping `totalAssets`), so the M reserves carry over and are converted to PYUSDX
+    ///         over time via `replaceAsset`. The held M must equal `totalSupply - totalAssets` (i.e. the
+    ///         pre-upgrade `claimYield()` realized all M yield) or it reverts `MReservesMismatch`. Guarded
+    ///         by a reinitializer so it can run exactly once.
+    /// @param  mToken The legacy M token address held in reserve.
+    function migrate(address mToken) external;
 }
