@@ -37,11 +37,10 @@ interface IUSDat {
     ///         (it sits behind a TransparentUpgradeableProxy, not a beacon proxy).
     error VersionPinningDisabled();
 
-    /// @notice Thrown by `migrate` when the held M balance does not equal the M-backed portion
-    ///         (`totalSupply - totalAssets`), i.e. the pre-upgrade `claimYield()` was not run and
-    ///         unrealized M yield remains. Registering it would over-back the token.
+    /// @notice Thrown by `migrate` when the held M balance is below the M-backed portion
+    ///         (`totalSupply - totalAssets`), i.e. the state is corrupted or `mToken` is wrong.
     /// @param  held    The M balance the contract holds.
-    /// @param  backing The expected M-backed portion (`totalSupply - totalAssets`).
+    /// @param  backing The minimum expected M-backed portion (`totalSupply - totalAssets`).
     error MReservesMismatch(uint256 held, uint256 backing);
 
     /* ============ Whitelist Admin Functions ============ */
@@ -85,9 +84,10 @@ interface IUSDat {
     ///         upgrade (atomically, as the `data` of `ProxyAdmin.upgradeAndCall`).
     /// @dev    Stops M earning (self opt-out) and registers the held M balance as a replaceable MultiMint
     ///         alt-asset (bumping `totalAssets`), so the M reserves carry over and are converted to PYUSDX
-    ///         over time via `replaceAsset`. The held M must equal `totalSupply - totalAssets` (i.e. the
-    ///         pre-upgrade `claimYield()` realized all M yield) or it reverts `MReservesMismatch`. Guarded
-    ///         by a reinitializer so it can run exactly once.
+    ///         over time via `replaceAsset`. The held M must cover `totalSupply - totalAssets` or it
+    ///         reverts `MReservesMismatch`; any surplus (M yield accrued since the pre-upgrade
+    ///         `claimYield()`, or donations) is minted to the yield recipient, as the legacy
+    ///         `claimYield()` would have done. Guarded by a reinitializer so it can run exactly once.
     /// @param  mToken The legacy M token address held in reserve.
     function migrate(address mToken) external;
 }

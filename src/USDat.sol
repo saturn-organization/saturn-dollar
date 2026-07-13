@@ -68,14 +68,25 @@ contract USDat is IUSDat, MultiMint, ForcedTransferable {
 
     /// @inheritdoc IUSDat
     function migrate(address mToken) external reinitializer(2) {
-        // NOTE: Self opt-out of M earning.
+        // NOTE: Self opt-out of M earning. Realizes all accrued M yield into the balance.
         IMTokenLike(mToken).stopEarning();
 
-        // NOTE: The held M must equal the M-backed portion `totalSupply - totalAssets`.
+        // NOTE: The held M must cover the M-backed portion `totalSupply - totalAssets`.
         uint256 mBalance = IERC20(mToken).balanceOf(address(this));
         uint256 backing = totalSupply() - totalAssets();
 
-        if (mBalance != backing) revert MReservesMismatch(mBalance, backing);
+        if (mBalance < backing) revert MReservesMismatch(mBalance, backing);
+
+        // NOTE: Realize any surplus (M yield accrued since the pre-upgrade `claimYield`, or M
+        //       donations) to the yield recipient — exactly as the legacy `claimYield` would have —
+        //       so M accruing between the `claimYield` and upgrade transactions cannot revert the
+        //       upgrade, and `totalSupply - totalAssets` matches the M being registered below.
+        uint256 surplus = mBalance - backing;
+
+        if (surplus != 0) {
+            emit YieldClaimed(surplus);
+            _mint(yieldRecipient(), surplus);
+        }
 
         // NOTE: Register the held M as a replaceable alt-asset.
         //       M can then be replaced with PYUSDX over time via `replaceAsset`.

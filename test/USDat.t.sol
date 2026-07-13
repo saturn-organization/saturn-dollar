@@ -342,11 +342,30 @@ contract USDatTest is Test {
         usdat.migrate(address(mToken));
     }
 
-    function test_migrate_revertsOnReservesMismatch() public {
+    function test_migrate_mintsSurplusToYieldRecipient() public {
         MockMToken mToken = _setUpForMigration(AMOUNT);
-        mToken.mint(address(usdat), 1); // mBalance = AMOUNT + 1, backing = AMOUNT
 
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.MReservesMismatch.selector, AMOUNT + 1, AMOUNT));
+        // M yield accrued since the pre-upgrade claimYield (or an M donation) must not revert the
+        // upgrade; it is realized to the yield recipient, as the legacy claimYield would have done.
+        uint256 surplus = 25e6;
+        mToken.mint(address(usdat), surplus); // mBalance = AMOUNT + surplus, backing = AMOUNT
+
+        usdat.migrate(address(mToken));
+
+        assertEq(usdat.totalSupply(), AMOUNT + surplus);
+        assertEq(usdat.balanceOf(yieldRecipient), surplus);
+        assertEq(usdat.assetCap(address(mToken)), AMOUNT + surplus);
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT + surplus);
+        assertEq(usdat.totalAssets(), AMOUNT + surplus);
+        assertFalse(usdat.isAllowedToUnwrap(1)); // _pyusdxBacking() still 0
+    }
+
+    function test_migrate_revertsOnReservesMismatch() public {
+        MockMToken mToken = new MockMToken();
+        usdat.mintForTest(alice, AMOUNT);
+        mToken.mint(address(usdat), AMOUNT - 1); // mBalance = AMOUNT - 1 < backing = AMOUNT
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.MReservesMismatch.selector, AMOUNT - 1, AMOUNT));
         usdat.migrate(address(mToken));
     }
 

@@ -4,6 +4,7 @@ pragma solidity 0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Options, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {USDat} from "../src/USDat.sol";
 import {IUSDat} from "../src/interfaces/IUSDat.sol";
@@ -113,6 +114,45 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
         // Reinitializer guard: migrate cannot run again
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         usdat.migrate(M_TOKEN);
+    }
+
+    /// @dev Regression test for the multi-transaction hazard: the script's `claimYield()` and the
+    ///      `upgradeAndCall` are separate transactions, so M yield keeps accruing between them.
+    ///      `migrate` must absorb that surplus (minting it to the yield recipient, as the legacy
+    ///      `claimYield` would have), not revert the upgrade on a reserves mismatch.
+    function test_migrate_absorbsYieldAccruedAfterClaim() external {
+        // Transaction 1: realize outstanding yield through the legacy path.
+        legacyProxy.claimYield();
+
+        address yieldRecipient = legacyProxy.yieldRecipient();
+        uint256 totalSupplyBefore = legacyProxy.totalSupply();
+        uint256 totalAssetsBefore = legacyProxy.totalAssets();
+        uint256 yieldRecipientBalanceBefore = legacyProxy.balanceOf(yieldRecipient);
+
+        // Yield accrues before the upgrade transaction lands in a later block.
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 surplus = legacyProxy.yield();
+        uint256 mBalance = IERC20(M_TOKEN).balanceOf(USDAT_PROXY);
+
+        assertGt(surplus, 0);
+
+        // Transaction 2: the upgrade + migrate, without re-running claimYield.
+        Options memory opts;
+        opts.constructorData = abi.encode(PYUSDX, PYUSDX_SWAP_FACILITY);
+        opts.unsafeSkipStorageCheck = true;
+        opts.unsafeAllow = "missing-initializer";
+
+        vm.startPrank(PROXY_ADMIN_OWNER);
+        Upgrades.upgradeProxy(USDAT_PROXY, "USDat.sol", abi.encodeCall(USDat.migrate, (M_TOKEN)), opts);
+        vm.stopPrank();
+
+        // The accrued surplus went to the yield recipient and the full M balance was registered.
+        assertEq(usdat.totalSupply(), totalSupplyBefore + surplus);
+        assertEq(usdat.balanceOf(yieldRecipient), yieldRecipientBalanceBefore + surplus);
+        assertEq(usdat.assetBalanceOf(M_TOKEN), mBalance);
+        assertEq(usdat.assetCap(M_TOKEN), mBalance);
+        assertEq(usdat.totalAssets(), totalAssetsBefore + mBalance);
     }
 
     function test_upgrade_preservesHolderBalances() external {
