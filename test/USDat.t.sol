@@ -14,6 +14,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {PYUSDX} from "@pyusdx/PYUSDX.sol";
 import {IPYUSDX} from "@pyusdx/IPYUSDX.sol";
 import {IMultiMint} from "@pyusdx/platform/projects/interfaces/IMultiMint.sol";
+import {IYieldToOne} from "@pyusdx/platform/projects/interfaces/IYieldToOne.sol";
 import {IExtension} from "@pyusdx/platform/interfaces/IExtension.sol";
 import {IArrayErrors} from "@m-extensions/interfaces/IArrayErrors.sol";
 import {IFreezable} from "@m-extensions/components/freezable/IFreezable.sol";
@@ -31,6 +32,7 @@ contract USDatTest is Test {
     PYUSDXHarness public pyusdx;
     MockIssuerGateway public issuerGateway;
     MockSwapFacility public swapFacility;
+    MockMToken public mToken;
 
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
@@ -105,6 +107,10 @@ contract USDatTest is Test {
         vm.prank(earnerManager);
         pyusdx.setAccountInfo(address(usdat), 500, 0, address(0));
         pyusdx.setAccountRateBps(address(usdat), uint16(500));
+
+        // USDat pins M to a hardcoded mainnet address, so the mock has to stand at that exact address.
+        deployCodeTo("USDatHarness.sol:MockMToken", usdat.M_TOKEN());
+        mToken = MockMToken(usdat.M_TOKEN());
     }
 
     /* ============ Helpers ============ */
@@ -134,8 +140,7 @@ contract USDatTest is Test {
     }
 
     /// @dev Sets up the post-claimYield pre-migration state: supply `s` exists and the contract holds `s` M.
-    function _setUpForMigration(uint256 s) internal returns (MockMToken mToken) {
-        mToken = new MockMToken();
+    function _setUpForMigration(uint256 s) internal {
         usdat.mintForTest(alice, s);
         mToken.mint(address(usdat), s);
     }
@@ -321,9 +326,8 @@ contract USDatTest is Test {
     /* ============ migrate ============ */
 
     function test_migrate_registersM() public {
-        MockMToken mToken = _setUpForMigration(AMOUNT);
-
-        usdat.migrate(address(mToken));
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
 
         assertEq(usdat.assetCap(address(mToken)), AMOUNT);
         assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT);
@@ -334,23 +338,23 @@ contract USDatTest is Test {
     }
 
     function test_migrate_cannotRunTwice() public {
-        MockMToken mToken = _setUpForMigration(AMOUNT);
-        usdat.migrate(address(mToken));
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
 
         // reinitializer(2) guard
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        usdat.migrate(address(mToken));
+        usdat.migrate();
     }
 
     function test_migrate_mintsSurplusToYieldRecipient() public {
-        MockMToken mToken = _setUpForMigration(AMOUNT);
+        _setUpForMigration(AMOUNT);
 
         // M yield accrued since the pre-upgrade claimYield (or an M donation) must not revert the
         // upgrade; it is realized to the yield recipient, as the legacy claimYield would have done.
         uint256 surplus = 25e6;
         mToken.mint(address(usdat), surplus); // mBalance = AMOUNT + surplus, backing = AMOUNT
 
-        usdat.migrate(address(mToken));
+        usdat.migrate();
 
         assertEq(usdat.totalSupply(), AMOUNT + surplus);
         assertEq(usdat.balanceOf(yieldRecipient), surplus);
@@ -361,27 +365,174 @@ contract USDatTest is Test {
     }
 
     function test_migrate_revertsOnReservesMismatch() public {
-        MockMToken mToken = new MockMToken();
         usdat.mintForTest(alice, AMOUNT);
         mToken.mint(address(usdat), AMOUNT - 1); // mBalance = AMOUNT - 1 < backing = AMOUNT
 
         vm.expectRevert(abi.encodeWithSelector(IUSDat.MReservesMismatch.selector, AMOUNT - 1, AMOUNT));
-        usdat.migrate(address(mToken));
+        usdat.migrate();
     }
 
     function test_migrate_blocksMWraps() public {
-        MockMToken mToken = _setUpForMigration(AMOUNT);
-        usdat.migrate(address(mToken));
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
 
         // cap == balance ⇒ no room to wrap M in
         assertFalse(usdat.isAllowedToWrap(address(mToken), 1));
     }
 
+    /* ============ claimMYield ============ */
+
+    function test_claimMYield_mintsSurplusToYieldRecipient() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        // M keeps earning after migrate; accrued yield lands on the balance, untracked by MultiMint.
+        uint256 surplus = 25e6;
+        mToken.mint(address(usdat), surplus);
+
+        vm.expectEmit(true, true, true, true);
+        emit IYieldToOne.YieldClaimed(surplus);
+
+        // Permissionless: bob holds no role.
+        vm.prank(bob);
+        uint256 claimed = usdat.claimMYield();
+
+        assertEq(claimed, surplus);
+        assertEq(usdat.balanceOf(yieldRecipient), surplus);
+        assertEq(usdat.totalSupply(), AMOUNT + surplus);
+
+        // The surplus is registered as backing, so the PYUSDX-backed portion stays at zero.
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT + surplus);
+        assertEq(usdat.totalAssets(), AMOUNT + surplus);
+        assertFalse(usdat.isAllowedToUnwrap(1));
+
+        // M wraps stay blocked.
+        assertEq(usdat.assetCap(address(mToken)), AMOUNT);
+        assertFalse(usdat.isAllowedToWrap(address(mToken), 1));
+    }
+
+    function test_claimMYield_zeroSurplus_returnsZero() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        vm.recordLogs();
+
+        vm.prank(bob);
+        uint256 claimed = usdat.claimMYield();
+
+        assertEq(claimed, 0);
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertEq(usdat.totalSupply(), AMOUNT);
+        assertEq(usdat.totalAssets(), AMOUNT);
+        assertEq(usdat.balanceOf(yieldRecipient), 0);
+    }
+
+    function test_claimMYield_isRepeatable() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        mToken.mint(address(usdat), 10e6);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), 10e6);
+
+        // A second round of accrual is claimable on top of the first.
+        mToken.mint(address(usdat), 4e6);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), 4e6);
+
+        assertEq(usdat.balanceOf(yieldRecipient), 14e6);
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT + 14e6);
+        assertEq(usdat.totalAssets(), AMOUNT + 14e6);
+    }
+
+    function test_claimMYield_revertsBeforeMigration() public {
+        _setUpForMigration(AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IMultiMint.AssetNotAllowed.selector, usdat.M_TOKEN()));
+
+        vm.prank(bob);
+        usdat.claimMYield();
+    }
+
+    function test_claimMYield_revertsWhenYieldRecipientFrozen() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        mToken.mint(address(usdat), 25e6);
+
+        vm.prank(compliance);
+        usdat.freeze(yieldRecipient);
+
+        vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountFrozen.selector, yieldRecipient));
+
+        vm.prank(bob);
+        usdat.claimMYield();
+    }
+
+    function test_claimMYield_afterReplaceAsset_claimsOnlyUntrackedSurplus() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        vm.prank(processor);
+        usdat.setReplaceAssetWhitelistCaller(treasury, true);
+
+        uint256 drain = 400e6;
+        _mintPyusdx(treasury, drain);
+
+        vm.startPrank(treasury);
+
+        pyusdx.approve(address(swapFacility), drain);
+        swapFacility.replaceAsset(address(usdat), address(mToken), drain, treasury);
+
+        vm.stopPrank();
+
+        // Draining moves tracked and held M together, so it leaves nothing to claim.
+        assertEq(usdat.mYield(), 0);
+
+        uint256 surplus = 5e6;
+        mToken.mint(address(usdat), surplus);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), surplus);
+
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT - drain + surplus);
+        assertEq(usdat.assetBalanceOf(address(mToken)), mToken.balanceOf(address(usdat)));
+    }
+
+    /* ============ mYield ============ */
+
+    function test_mYield_matchesClaimedAmount() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        assertEq(usdat.mYield(), 0);
+
+        uint256 surplus = 25e6;
+        mToken.mint(address(usdat), surplus);
+
+        uint256 pending = usdat.mYield();
+        assertEq(pending, surplus);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), pending); // the claim pays exactly what the view promised
+
+        assertEq(usdat.mYield(), 0);
+    }
+
+    function test_mYield_beforeMigration_returnsZero() public {
+        _setUpForMigration(AMOUNT);
+
+        // M is held but not registered, so nothing is claimable yet — the view must not revert.
+        assertEq(usdat.mYield(), 0);
+    }
+
     /* ============ replaceAsset drain ============ */
 
     function test_replaceAsset_drainsMForPyusdx() public {
-        MockMToken mToken = _setUpForMigration(AMOUNT);
-        usdat.migrate(address(mToken));
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
 
         // whitelist treasury as a replaceAsset caller
         vm.prank(processor);
@@ -405,8 +556,8 @@ contract USDatTest is Test {
     }
 
     function test_replaceAsset_revertsForNonWhitelistedCaller() public {
-        MockMToken mToken = _setUpForMigration(AMOUNT);
-        usdat.migrate(address(mToken));
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
 
         // whitelist someone else so the whitelist is non-empty (enforced)
         vm.prank(processor);

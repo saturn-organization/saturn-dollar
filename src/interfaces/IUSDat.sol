@@ -69,6 +69,10 @@ interface IUSDat {
     /// @return The bytes32 role identifier.
     function WHITELIST_MANAGER_ROLE() external view returns (bytes32);
 
+    /// @notice Returns the address of the legacy M token held in reserve.
+    /// @return The M token address.
+    function M_TOKEN() external view returns (address);
+
     /// @notice Returns whether the whitelist is currently enabled.
     /// @return True if the whitelist is enabled, false otherwise.
     function isWhitelistEnabled() external view returns (bool);
@@ -82,12 +86,15 @@ interface IUSDat {
 
     /// @notice One-shot migration run immediately after the JMIExtension → MultiMint implementation
     ///         upgrade (atomically, as the `data` of `ProxyAdmin.upgradeAndCall`).
-    /// @dev    Stops M earning (self opt-out) and registers the held M balance as a replaceable MultiMint
-    ///         alt-asset (bumping `totalAssets`), so the M reserves carry over and are converted to PYUSDX
-    ///         over time via `replaceAsset`. The held M must cover `totalSupply - totalAssets` or it
-    ///         reverts `MReservesMismatch`; any surplus (M yield accrued since the pre-upgrade
-    ///         `claimYield()`, or donations) is minted to the yield recipient, as the legacy
-    ///         `claimYield()` would have done. Guarded by a reinitializer so it can run exactly once.
-    /// @param  mToken The legacy M token address held in reserve.
-    function migrate(address mToken) external;
+    function migrate() external;
+
+    /* ============ M Yield Functions ============ */
+
+    /// @notice Mints the M yield accrued since the last claim to the yield recipient.
+    /// @return The amount of M yield claimed.
+    function claimMYield() external returns (uint256);
+
+    /// @notice Returns the M yield currently claimable by `claimMYield`.
+    /// @return The held M not yet registered as backing.
+    function mYield() external view returns (uint256);
 }

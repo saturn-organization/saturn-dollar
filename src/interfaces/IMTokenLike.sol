@@ -6,9 +6,6 @@ pragma solidity ^0.8.34;
  * @author M0 Labs
  */
 interface IMTokenLike {
-    /// @notice Stops earning for caller.
-    function stopEarning() external;
-
     /// @notice Returns whether the given account is earning.
     /// @param  account The account to check.
     /// @return Whether the account is earning.

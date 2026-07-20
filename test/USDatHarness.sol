@@ -25,9 +25,7 @@ contract USDatHarness is USDat {
     }
 }
 
-/// @dev Minimal mock M token: ERC20 (6-dec) plus the no-arg `stopEarning()` self opt-out used by `migrate`.
+/// @dev Minimal mock M token: a 6-decimal ERC20.
 contract MockMToken is MockERC20 {
     constructor() MockERC20("M by M0", "M", 6) {}
-
-    function stopEarning() external {}
 }

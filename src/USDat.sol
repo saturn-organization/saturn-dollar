@@ -8,7 +8,6 @@ import {UIntMath} from "common/libs/UIntMath.sol";
 
 import {MultiMint} from "@pyusdx/platform/projects/MultiMint.sol";
 
-import {IMTokenLike} from "./interfaces/IMTokenLike.sol";
 import {IUSDat} from "./interfaces/IUSDat.sol";
 
 /**
@@ -61,18 +60,19 @@ contract USDat is IUSDat, MultiMint, ForcedTransferable {
     /// @inheritdoc IUSDat
     bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
 
+    /// @inheritdoc IUSDat
+    address public constant M_TOKEN = 0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address pyusdx_, address swapFacility_) MultiMint(pyusdx_, swapFacility_) {}
 
     /* ============ Migration ============ */
 
     /// @inheritdoc IUSDat
-    function migrate(address mToken) external reinitializer(2) {
-        // NOTE: Self opt-out of M earning. Realizes all accrued M yield into the balance.
-        IMTokenLike(mToken).stopEarning();
-
-        // NOTE: The held M must cover the M-backed portion `totalSupply - totalAssets`.
-        uint256 mBalance = IERC20(mToken).balanceOf(address(this));
+    function migrate() external reinitializer(2) {
+        // NOTE: The held M must cover the M-backed portion `totalSupply - totalAssets`. M earning is
+        //       left on, so this balance already includes all yield accrued up to this block.
+        uint256 mBalance = IERC20(M_TOKEN).balanceOf(address(this));
         uint256 backing = totalSupply() - totalAssets();
 
         if (mBalance < backing) revert MReservesMismatch(mBalance, backing);
@@ -92,8 +92,51 @@ contract USDat is IUSDat, MultiMint, ForcedTransferable {
         //       M can then be replaced with PYUSDX over time via `replaceAsset`.
         MultiMintStorage storage $ = _getMultiMintStorage();
 
-        $.assets[mToken] = Asset({cap: mBalance, balance: UIntMath.safe240(mBalance), decimals: 6});
+        $.assets[M_TOKEN] = Asset({cap: mBalance, balance: UIntMath.safe240(mBalance), decimals: 6});
         $.totalAssets += mBalance;
+    }
+
+    /* ============ M Yield Functions ============ */
+
+    /// @inheritdoc IUSDat
+    function claimMYield() external returns (uint256) {
+        if (!isAllowedAsset(M_TOKEN)) revert AssetNotAllowed(M_TOKEN);
+
+        address yieldRecipient = yieldRecipient();
+        _revertIfFrozen(yieldRecipient);
+
+        MultiMintStorage storage $ = _getMultiMintStorage();
+        uint256 surplus = _mSurplus($);
+
+        if (surplus == 0) return 0;
+
+        $.assets[M_TOKEN].balance += UIntMath.safe240(surplus);
+        $.totalAssets += surplus;
+
+        emit YieldClaimed(surplus);
+        _mint(yieldRecipient, surplus);
+
+        return surplus;
+    }
+
+    /// @inheritdoc IUSDat
+    function mYield() external view returns (uint256) {
+        if (!isAllowedAsset(M_TOKEN)) return 0;
+
+        return _mSurplus(_getMultiMintStorage());
+    }
+
+    /**
+     * @dev    Returns the held M not yet registered as backing — M yield accrued since the last claim,
+     *         plus any M donation.
+     * @param  $ The MultiMint storage pointer.
+     * @return The claimable M surplus.
+     */
+    function _mSurplus(MultiMintStorage storage $) internal view returns (uint256) {
+        uint256 balance = IERC20(M_TOKEN).balanceOf(address(this));
+        uint256 tracked = $.assets[M_TOKEN].balance;
+
+        return balance > tracked ? balance - tracked : 0;
     }
 
     /* ============ Version Pinning (disabled) ============ */
