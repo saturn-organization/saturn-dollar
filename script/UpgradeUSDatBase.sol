@@ -20,6 +20,17 @@ interface IJMIExtensionLegacy {
     function balanceOf(address account) external view returns (uint256);
 }
 
+/// @dev Single-caller overload of MultiMint's `setReplaceAssetWhitelistCaller`, declared here so
+///      `abi.encodeCall` can select it unambiguously (the interface also exposes an array-batch overload).
+interface ISetReplaceAssetWhitelistCaller {
+    function setReplaceAssetWhitelistCaller(address caller, bool allowed) external;
+}
+
+/// @dev MultiMint's `setAssetCap`, declared here to avoid importing the full IMultiMint surface.
+interface ISetAssetCap {
+    function setAssetCap(address asset, uint256 cap) external;
+}
+
 contract UpgradeUSDatBase {
     address constant USDAT_PROXY = 0x23238f20b894f29041f48D88eE91131C395Aaa71;
 
@@ -31,6 +42,16 @@ contract UpgradeUSDatBase {
     ///      with a 5-day minDelay. EXECUTOR_ROLE is held by address(0), so anyone may execute a matured
     ///      operation; PROPOSER_ROLE and CANCELLER_ROLE are held by 0x610182581C93687Ca03F4a8E7f124f8cEC616820.
     address constant TIMELOCK = 0xfD5782E3BFF366601da3973aE30C583dE4F08A67;
+
+    /// @dev The asset-cap-manager SaturnTimelock — a distinct TimelockController from the upgrade TIMELOCK
+    ///      above. It holds USDat's ASSET_CAP_MANAGER_ROLE. Same 5-day minDelay;
+    ///      EXECUTOR_ROLE is held by address(0) (anyone may execute); PROPOSER_ROLE and
+    ///      CANCELLER_ROLE are held by 0xA18f34a03788CfC566Ce5CCB21b2715f072dA3Ad.
+    address constant ASSET_CAP_TIMELOCK = 0x7D343D17896D2cd87A49b4fB8872298A883f78f7;
+
+    /// @dev The M0 solver to gate `replaceAsset` to: the sole caller allowed to drain the M reserve
+    ///      into PYUSDX once the whitelist is configured.
+    address constant SOLVER = 0x81D22b74FFC5aFa7F5d70404390233a8C45F3b92;
 
     /// @dev The operation is standalone and needs no uniqueness beyond its calldata, so both are zero.
     ///      `schedule` and `execute` must agree on them: the operation id is a hash over these fields.
@@ -54,5 +75,20 @@ contract UpgradeUSDatBase {
     function _buildUpgradeAndCallData(address impl) internal view returns (address proxyAdmin, bytes memory payload) {
         proxyAdmin = Upgrades.getAdminAddress(USDAT_PROXY);
         payload = abi.encodeCall(IProxyAdmin.upgradeAndCall, (USDAT_PROXY, impl, abi.encodeCall(USDat.migrate, ())));
+    }
+
+    /// @dev Build the call the asset-cap-manager timelock makes on execute:
+    ///      USDat.setReplaceAssetWhitelistCaller(SOLVER, true). Only valid after the upgrade is live, since
+    ///      this selector does not exist on the pre-upgrade JMIExtension implementation.
+    function _buildWhitelistSolverData() internal pure returns (bytes memory payload) {
+        payload = abi.encodeCall(ISetReplaceAssetWhitelistCaller.setReplaceAssetWhitelistCaller, (SOLVER, true));
+    }
+
+    /// @dev Build the call the asset-cap-manager timelock makes on execute: USDat.setAssetCap(M_TOKEN, 0).
+    ///      The end-state finalizer for the M→PYUSDX migration: once M is fully drained via `replaceAsset`,
+    ///      zeroing the cap makes `isAllowedAsset(M)` false, permanently disabling M wraps — and also
+    ///      M `replaceAsset` and `claimMYield`, so it must run only after M is drained and any M yield swept.
+    function _buildZeroMAssetCapData() internal pure returns (bytes memory payload) {
+        payload = abi.encodeCall(ISetAssetCap.setAssetCap, (M_TOKEN, 0));
     }
 }

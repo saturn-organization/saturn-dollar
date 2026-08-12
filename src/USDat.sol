@@ -94,6 +94,8 @@ contract USDat is IUSDat, MultiMint, ForcedTransferable {
 
         $.assets[M_TOKEN] = Asset({cap: mBalance, balance: UIntMath.safe240(mBalance), decimals: 6});
         $.totalAssets += mBalance;
+
+        emit AssetCapSet(M_TOKEN, mBalance);
     }
 
     /* ============ M Yield Functions ============ */
