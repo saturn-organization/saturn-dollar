@@ -38,9 +38,9 @@ contract UpgradeUSDatBase {
     address constant PYUSDX = 0xeBDB0942cE16386Ab90718C7BD10C91CDb66b14d;
     address constant PYUSDX_SWAP_FACILITY = 0x0bC305e7e13113cAEd3f5486849e9518a1cC4173;
 
-    /// @dev New USDat implementation the upgrade points at. Deploy with `DeployUSDatImplementation`, then
-    ///      hardcode the printed address here. Left zero until deployed; scripts and fork test guard on it.
-    address constant NEW_IMPLEMENTATION = address(0);
+    /// @dev New USDat implementation the upgrade points at. Deployed at mainnet block 25,741,375 from
+    ///      commit 30df5c2; codehash checked against a local build by `VerifyCodeHash`.
+    address constant NEW_IMPLEMENTATION = 0x496a4A33b6181F4536203488d9a05AC1429E702c;
 
     /// @dev SaturnTimelock — owner of the USDat ProxyAdmin since block 25,284,032. An OZ TimelockController
     ///      with a 5-day minDelay. EXECUTOR_ROLE is held by address(0), so anyone may execute a matured
