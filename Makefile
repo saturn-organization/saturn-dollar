@@ -9,6 +9,7 @@ export
 # deploy the implementation in the same broadcast):
 #   1. deploy-upgrade-impl — deploy the new implementation, then hardcode the printed address into
 #      UpgradeUSDatBase.NEW_IMPLEMENTATION (the propose and execute scripts rebuild the operation from it).
+#      Already done for the current upgrade; NEW_IMPLEMENTATION is set. Redo only for a new implementation.
 #   2. propose the upgrade against NEW_IMPLEMENTATION, either:
 #        a. propose-upgrade-calldata — print the schedule() calldata to paste into the Fireblocks console, or
 #        b. propose-upgrade          — broadcast schedule() through the Fireblocks JSON-RPC SDK (MPC signs).
@@ -33,8 +34,8 @@ deploy-upgrade-impl:
 	--ffi --skip test --slow --non-interactive --broadcast --verify
 
 # Dry-run only: simulates the schedule from PROPOSER_ADDRESS (no key, no broadcast) and prints the operation
-# id plus the schedule() calldata for manual submission through the Fireblocks console. Requires
-# UpgradeUSDatBase.NEW_IMPLEMENTATION to be hardcoded first (deploy-upgrade-impl prints it).
+# id plus the schedule() calldata for manual submission through the Fireblocks console. Schedules the
+# upgrade against UpgradeUSDatBase.NEW_IMPLEMENTATION.
 propose-upgrade-calldata: RPC_URL=$(MAINNET_RPC_URL)
 propose-upgrade-calldata:
 	forge script script/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
@@ -44,8 +45,7 @@ propose-upgrade-calldata:
 
 # Broadcast schedule() through Fireblocks: the fireblocks-json-rpc SDK stands up a local JSON-RPC proxy at
 # {} and forge submits the unsigned tx to it via --unlocked --sender; the Fireblocks MPC wallet signs. Needs
-# FIREBLOCKS_API_KEY and FIREBLOCKS_API_PRIVATE_KEY_PATH in the environment, plus a hardcoded
-# NEW_IMPLEMENTATION.
+# FIREBLOCKS_API_KEY and FIREBLOCKS_API_PRIVATE_KEY_PATH in the environment.
 propose-upgrade: RPC_URL=$(MAINNET_RPC_URL)
 propose-upgrade:
 	npx @fireblocks/fireblocks-json-rpc --http --rpcUrl $(RPC_URL) -- \
