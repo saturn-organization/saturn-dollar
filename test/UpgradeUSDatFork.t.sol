@@ -45,17 +45,16 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
     TimelockController public assetCapTimelock = TimelockController(payable(ASSET_CAP_TIMELOCK));
 
     function setUp() public {
-        // First block at which the timelock owns the ProxyAdmin.
-        vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), 25_284_032);
+        // First block at which NEW_IMPLEMENTATION is deployed.
+        vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), 25_741_375);
     }
 
     /* ============ Timelock upgrade helpers ============ */
 
-    /// @dev Schedules the upgrade as the proposer, mirroring `ProposeUSDatUpgrade`. Uses the hardcoded
-    ///      NEW_IMPLEMENTATION once live at the fork block, else deploys a fresh impl to keep the suite green.
+    /// @dev Schedules the upgrade as the proposer, mirroring `ProposeUSDatUpgrade`. Uses the deployed
+    ///      NEW_IMPLEMENTATION, so the suite exercises the exact code the upgrade will point at.
     function _schedule() internal returns (address proxyAdmin, bytes memory payload) {
-        address impl = NEW_IMPLEMENTATION.code.length > 0 ? NEW_IMPLEMENTATION : _deployImplementation();
-        (proxyAdmin, payload) = _buildUpgradeAndCallData(impl);
+        (proxyAdmin, payload) = _buildUpgradeAndCallData(NEW_IMPLEMENTATION);
 
         uint256 delay = timelock.getMinDelay();
 
@@ -79,16 +78,16 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
     /* ============ Pre-upgrade state checks ============ */
 
     function test_preUpgrade_state() external view {
-        uint256 usdcBalance = 100_000001;
-
         assertEq(IOwnableLike(Upgrades.getAdminAddress(USDAT_PROXY)).owner(), TIMELOCK);
 
         assertEq(legacyProxy.mToken(), M_TOKEN);
         assertEq(legacyProxy.swapFacility(), M_SWAP_FACILITY);
-        assertEq(legacyProxy.totalSupply(), 120_647_934_180848);
-        assertEq(legacyProxy.totalAssets(), usdcBalance);
-        assertEq(IERC20(USDC).balanceOf(USDAT_PROXY), usdcBalance);
-        assertEq(legacyProxy.assetBalanceOf(USDC), usdcBalance);
+        assertEq(legacyProxy.totalSupply(), 95_264_538_399370);
+
+        // The USDC alt-asset backing has been fully drained by this block, so M is the sole backing.
+        assertEq(legacyProxy.totalAssets(), 0);
+        assertEq(IERC20(USDC).balanceOf(USDAT_PROXY), 0);
+        assertEq(legacyProxy.assetBalanceOf(USDC), 0);
 
         uint256 mBalance = IERC20(M_TOKEN).balanceOf(USDAT_PROXY);
         uint256 mBacking = legacyProxy.totalSupply() - legacyProxy.totalAssets() + legacyProxy.yield();
@@ -250,7 +249,7 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
         address holder = 0x7a7dE491e1BE5287874904e2b7c8488249A4D0a9; // Pendle: SY-USDat Token
         uint256 holderBalanceBefore = legacyProxy.balanceOf(holder);
 
-        assertEq(holderBalanceBefore, 58_546_851_626822);
+        assertEq(holderBalanceBefore, 43_662_792_245891);
 
         _doTimelockUpgrade();
 
@@ -356,11 +355,9 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
 
     /* ============ Hardcoded implementation ============ */
 
-    /// @dev Once NEW_IMPLEMENTATION is hardcoded and `setUp` re-pinned past its deploy block, the on-chain
-    ///      code at that address must be the audited build — the runtime a fresh USDat produces here.
+    /// @dev The deployed implementation must be the code in this repo: its runtime codehash must equal
+    ///      that of a USDat built here from this commit.
     function test_hardcodedImplementation_isTheAuditedBuild() external {
-        if (NEW_IMPLEMENTATION.code.length == 0) vm.skip(true);
-
         USDat freshBuild = new USDat(PYUSDX, PYUSDX_SWAP_FACILITY);
         assertEq(NEW_IMPLEMENTATION.codehash, address(freshBuild).codehash);
     }
