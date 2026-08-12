@@ -51,10 +51,10 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
 
     /* ============ Timelock upgrade helpers ============ */
 
-    /// @dev Deploys the implementation and schedules the upgrade as the proposer, mirroring
-    ///      `ProposeUSDatUpgrade`. Returns what `_execute` needs to rebuild the operation.
+    /// @dev Schedules the upgrade as the proposer, mirroring `ProposeUSDatUpgrade`. Uses the hardcoded
+    ///      NEW_IMPLEMENTATION once live at the fork block, else deploys a fresh impl to keep the suite green.
     function _schedule() internal returns (address proxyAdmin, bytes memory payload) {
-        address impl = _deployImplementation();
+        address impl = NEW_IMPLEMENTATION.code.length > 0 ? NEW_IMPLEMENTATION : _deployImplementation();
         (proxyAdmin, payload) = _buildUpgradeAndCallData(impl);
 
         uint256 delay = timelock.getMinDelay();
@@ -352,5 +352,16 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
         assertFalse(usdat.isAllowedAsset(M_TOKEN));
         assertFalse(usdat.isAllowedToWrap(M_TOKEN, 1));
         assertFalse(usdat.isAllowedToReplaceAsset(SOLVER, M_TOKEN, 1));
+    }
+
+    /* ============ Hardcoded implementation ============ */
+
+    /// @dev Once NEW_IMPLEMENTATION is hardcoded and `setUp` re-pinned past its deploy block, the on-chain
+    ///      code at that address must be the audited build — the runtime a fresh USDat produces here.
+    function test_hardcodedImplementation_isTheAuditedBuild() external {
+        if (NEW_IMPLEMENTATION.code.length == 0) vm.skip(true);
+
+        USDat freshBuild = new USDat(PYUSDX, PYUSDX_SWAP_FACILITY);
+        assertEq(NEW_IMPLEMENTATION.codehash, address(freshBuild).codehash);
     }
 }
