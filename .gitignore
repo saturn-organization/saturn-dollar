@@ -11,7 +11,7 @@ out/
 docs/
 
 # Dotenv file
-.env
+.env*
 
 # solc build downloaded by @openzeppelin/upgrades-core during the --ffi upgrade validation
 soljson-*.js

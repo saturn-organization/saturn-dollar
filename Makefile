@@ -52,7 +52,8 @@ propose-upgrade:
 	forge script script/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
 	--rpc-url {} \
 	--sender $(PROPOSER_ADDRESS) --unlocked \
-	--skip test --slow --non-interactive --broadcast
+	--skip test --slow --non-interactive --broadcast \
+	--rpc-timeout 1800 --timeout 600
 
 execute-upgrade: RPC_URL=$(MAINNET_RPC_URL)
 execute-upgrade:
