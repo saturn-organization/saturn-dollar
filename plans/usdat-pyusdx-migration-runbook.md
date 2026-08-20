@@ -1,267 +1,295 @@
 # USDat → PYUSDX Migration Runbook
 
-**Date:** 2026-06-10
-**Status:** Migration plan (implementation merged on `proto-963-migrate-usdat-code-to-pyusdx`)
-**Scope:** Operational steps to migrate the live USDat proxy from the M-backed `JMIExtension` implementation to the PYUSDX `MultiMint` implementation, including prerequisites and the JMI → MultiMint behavioural differences operators must account for.
+**Last updated:** 2026-08-20
 
----
+**Status:** The implementation deployment and timelocked proxy upgrade are recorded as successfully executed on mainnet. The M → PYUSDX reserve wind-down and final M-cap operation remain state-dependent operational steps.
 
-## 1. Summary
+**Scope:** The implemented upgrade, migration accounting, optional `replaceAsset` restriction, ongoing M-yield handling, and final removal of M as an allowed asset.
 
-USDat lives behind a `TransparentUpgradeableProxy` (`0x23238f20b894f29041f48D88eE91131C395Aaa71`). Today it is an M-backed `JMIExtension`. The new implementation re-points USDat at the **PYUSDX `MultiMint`** base.
+## 1. Source of truth
 
-The migration is an **upgrade-only** path: the new `USDat` exposes no `initialize`, only a one-shot `migrate(address mToken)` reinitializer. Because the live proxy is already initialized and holds all roles/balances/state, `migrate` only:
+This runbook follows the checked-in implementation and scripts:
 
-1. **Stops M earning** (self opt-out via the M token's no-arg `stopEarning()`), and
-2. **Registers the held M as a replaceable MultiMint alt-asset**, so the existing M reserves carry over and are converted to PYUSDX **incrementally** via `replaceAsset` — **no up-front PYUSDX outlay** at upgrade.
+- `src/USDat.sol`
+- `script/UpgradeUSDatBase.sol`
+- `script/DeployUSDatImplementation.s.sol`
+- `script/ProposeUSDatUpgrade.s.sol`
+- `script/ExecuteUSDatUpgrade.s.sol`
+- `script/ProposeReplaceAssetWhitelist.s.sol`
+- `script/ExecuteReplaceAssetWhitelist.s.sol`
+- `script/ProposeZeroMAssetCap.s.sol`
+- `script/ExecuteZeroMAssetCap.s.sol`
+- `test/UpgradeUSDatFork.t.sol`
 
-> The accounting and `migrate` design rationale are documented in `plans/usdat-migration-m-as-replaceable-asset.md`. This doc is the **operational runbook + prerequisites**.
+If this document conflicts with those files, the code is authoritative and the runbook must be updated before the next operation.
 
----
+## 2. Current design
 
-## 2. Key differences: JMIExtension → MultiMint
+USDat uses an existing `TransparentUpgradeableProxy` at `0x23238f20b894f29041f48D88eE91131C395Aaa71`. The proxy previously ran an M-backed `JMIExtension` implementation. The current implementation inherits PYUSDX `MultiMint` and `ForcedTransferable`.
 
-These behavioural changes must be accounted for operationally.
+This is an upgrade-only implementation:
 
-<table fit-page-width="true" header-row="true">
-	<tr>
-		<td>Concern</td>
-		<td>JMIExtension (old)</td>
-		<td>MultiMint (new)</td>
-	</tr>
-	<tr>
-		<td>**Backing asset**</td>
-		<td>M (primary), plus alt-assets (USDC)</td>
-		<td>PYUSDX (primary). M becomes a replaceable alt-asset; unwrap returns PYUSDX</td>
-	</tr>
-	<tr>
-		<td>**`claimYield()`**</td>
-		<td>Permissionless; realizes **M** yield</td>
-		<td>**Permissioned** — `onlyRole(YIELD_RECIPIENT_MANAGER_ROLE)`; realizes **PYUSDX** yield (`claimFor`) then mints extension tokens to `yieldRecipient`</td>
-	</tr>
-	<tr>
-		<td>**Yield source**</td>
-		<td>M earning via TTG approved-earner list</td>
-		<td>PYUSDX per-account earning, configured by the PYUSDX `earnerManager` (`setAccountInfo`)</td>
-	</tr>
-	<tr>
-		<td>**Swap facility**</td>
-		<td>M SwapFacility `0xB680…6278`</td>
-		<td>PYUSDX SwapFacility `0x0bC3…4173`</td>
-	</tr>
-	<tr>
-		<td>**Extension registry**</td>
-		<td>n/a</td>
-		<td>Must be an approved extension in the PYUSDX `ExtensionFactory` for SwapFacility wrap/unwrap/replaceAsset to work</td>
-	</tr>
-	<tr>
-		<td>**New role**</td>
-		<td>—</td>
-		<td>`ASSET_CAP_MANAGER_ROLE` — controls asset caps and the `replaceAsset` whitelist</td>
-	</tr>
-	<tr>
-		<td>**Version pinning**</td>
-		<td>Beacon-based</td>
-		<td>Disabled — `pinVersion`/`unpinVersion` revert `VersionPinningDisabled` (transparent proxy, no origin beacon). `VERSION_MANAGER_ROLE` is inert</td>
-	</tr>
-	<tr>
-		<td>**Entry point**</td>
-		<td>`initialize`</td>
-		<td>`migrate(mToken)` reinitializer — no public `initialize`</td>
-	</tr>
-	<tr>
-		<td>**Whitelist (compliance)**</td>
-		<td>Preserved</td>
-		<td>Preserved — gates `wrap`/`unwrap` only; **`replaceAsset` is NOT whitelist-gated** (it has its own `replaceAssetWhitelist`)</td>
-	</tr>
-</table>
+- it has no production `initialize` function;
+- its constructor pins PYUSDX and the PYUSDX SwapFacility as immutables;
+- it exposes `migrate()` as a one-shot `reinitializer(2)`; and
+- `migrate()` is called atomically as the data passed to `ProxyAdmin.upgradeAndCall`.
 
-<callout icon="⚠️" color="red_bg">
-**`claimYield()` is now permissioned.** Any off-chain automation or integrator that previously called USDat's permissionless `claimYield()` will break — it now reverts for anyone without `YIELD_RECIPIENT_MANAGER_ROLE`. Notify integrators before the upgrade.
-</callout>
+The implementation overrides the `MultiMint` and `YieldToOne` storage accessors so they continue using the legacy JMIExtension and MYieldToOne ERC-7201 storage slots. Existing balances, roles, yield-recipient state, alt-asset state, and total-asset accounting therefore remain in the proxy.
 
----
+### Important behavior changes
 
-## 3. Prerequisites (before the migration tx)
+| Concern | Legacy JMIExtension | Current USDat/MultiMint implementation |
+|---|---|---|
+| Primary backing | M | PYUSDX |
+| Legacy M reserve | Primary backing | Registered as a replaceable 6-decimal alternative asset |
+| M earning | Enabled | Deliberately remains enabled during the reserve wind-down |
+| M yield | `claimYield()` | Permissionless `claimMYield()` |
+| PYUSDX yield | Not applicable | Inherited permissioned `claimYield()` |
+| Unwrap output | M | PYUSDX |
+| Upgrade entry point | `initialize` on the original deployment | One-shot `migrate()` |
+| Version pinning | Beacon-oriented behavior | Disabled; `pinVersion` and `unpinVersion` revert |
+| Compliance whitelist | Existing USDat behavior | Preserved for wrap and unwrap; separate whitelist controls `replaceAsset` callers |
 
-<callout icon="📋" color="blue_bg">
-These must be ready/coordinated **before** executing the migration sequence in §4. The **PYUSDX earner registration (item 2) is done before the upgrade** — keyed by account address, so it works against the proxy regardless of the live implementation. **ExtensionFactory registration (item 3) is post-upgrade and is the migration's final step — it gates the SwapFacility, so no `pause` is needed** (see §4). The **`replaceAsset` whitelist (item 4) is optional**. (Deploying the new implementation is **not** a separate step — `Upgrades.upgradeProxy` deploys it inside the upgrade tx; see §4 step 2.)
-</callout>
+There is no pre-upgrade `claimYield()` call in the current upgrade scripts. Yield can accrue during the 5-day timelock delay, and `migrate()` absorbs that surplus at execution time.
 
-1. **Confirm mainnet addresses** for PYUSDX, the PYUSDX SwapFacility, ExtensionFactory, the PYUSDX `earnerManager`, and the M token (6-decimals) — see §7.
-2. **PYUSDX earner registration (do this *before* the upgrade)** — add USDat to the list of PYUSDX earners: the PYUSDX `earnerManager` calls `setAccountInfo(USDat, earnerRate, feeRate, claimRecipient)`. **Decide `earnerRate`, `feeRate`, and `claimRecipient`** with the PYUSDX team. `setAccountInfo` is keyed by account address, so it works while USDat is still the JMI impl — and it is inert until USDat holds PYUSDX, so doing it ahead of the upgrade has no side effects. Without this, USDat accrues no PYUSDX yield.
-3. **ExtensionFactory registration (post-upgrade only, run last)** — a `FACTORY_MANAGER_ROLE` holder must call `registerExtension(USDat, ExtensionType.MULTI_MINT)`. The factory validates `USDat.pyusdx()` and `USDat.swapFacility()` match its configured values — selectors that only resolve to the PYUSDX values **after** `migrate`, so this **cannot** run before the upgrade (the legacy JMI proxy has no `pyusdx()`). Until registered, all SwapFacility paths (`swapIn`/`swapOut`/`replaceAsset`) revert `NotApprovedExtension` — which is why registration doubles as the migration's gate and is run **last**, removing the need to pause.
-4. **`replaceAsset` whitelist plan (optional)** — while the whitelist is empty, `replaceAsset` is open to anyone. If the team wants to restrict the M→PYUSDX wind-down to specific treasury / market-maker address(es), add them via `setReplaceAssetWhitelistCaller` (`ASSET_CAP_MANAGER_ROLE`) **before** the ExtensionFactory registration, so `replaceAsset` is never open once USDat goes live. If permissionless `replaceAsset` is acceptable, skip this.
-5. **Confirm authority holders** are available to sign (see role table in §6).
+## 3. Mainnet constants
 
----
+| Item | Address |
+|---|---|
+| USDat proxy | `0x23238f20b894f29041f48D88eE91131C395Aaa71` |
+| Current implementation | `0x496a4A33b6181F4536203488d9a05AC1429E702c` |
+| ProxyAdmin | `0xcf1072DA5f0D127AEf99136489BAd08bFa3D1A7D` |
+| Upgrade timelock | `0xfD5782E3BFF366601da3973aE30C583dE4F08A67` |
+| Asset-cap timelock | `0x7D343D17896D2cd87A49b4fB8872298A883f78f7` |
+| M token | `0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b` |
+| PYUSDX | `0xeBDB0942cE16386Ab90718C7BD10C91CDb66b14d` |
+| PYUSDX SwapFacility | `0x0bC305e7e13113cAEd3f5486849e9518a1cC4173` |
+| M0 solver | `0x81D22b74FFC5aFa7F5d70404390233a8C45F3b92` |
 
-## 4. Migration runbook (ordered transaction sequence)
+Both timelocks have a 5-day minimum delay and open execution through `EXECUTOR_ROLE` granted to `address(0)`.
 
-<callout icon="🔒" color="red_bg">
-**`migrate` is reinitializer-guarded but NOT role-gated.** Under `upgradeAndCall`, `msg.sender` is the `ProxyAdmin` (which holds no role). It MUST run **atomically** as the `data` of `ProxyAdmin.upgradeAndCall(proxy, newImpl, migrate(mToken))`. Upgrading the impl in a separate tx would let anyone front-run `migrate` with a malicious `mToken`.
-</callout>
+- Upgrade proposer/canceller: `0x610182581C93687Ca03F4a8E7f124f8cEC616820`
+- Asset-cap proposer/canceller: `0xA18f34a03788CfC566Ce5CCB21b2715f072dA3Ad`
 
-**Before the sequence (in advance):** PYUSDX earner registration — the PYUSDX `earnerManager` calls `setAccountInfo(USDat, earnerRate, feeRate, claimRecipient)` (§3 item 2). Keyed by account address, so it runs while USDat is still the JMI impl.
+The script constants use `bytes32(0)` for both the operation predecessor and salt. Proposal and execution must rebuild identical target, value, calldata, predecessor, and salt values.
 
-Then execute the following as an **ordered transaction sequence** signed by the respective authorities. There is **no single multiSend**: the ProxyAdmin owner `0x610182581C93687Ca03F4a8E7f124f8cEC616820` is an **EOA** (not a Safe), and the steps span several role holders (§6). The only hard atomicity requirement is the impl-swap + `migrate`, which `Upgrades.upgradeProxy` already runs in **one** `upgradeAndCall` tx (the front-running protection above).
+## 4. Prerequisites
 
-**No `pause`/`unpause` is needed.** ExtensionFactory registration is the gate: until USDat is registered, every SwapFacility path (`wrap`/`unwrap`/`replaceAsset`) reverts `NotApprovedExtension`. Registering **last** keeps the contract effectively closed throughout the upgrade — plain ERC20 transfers (always allowed, unchanged by `migrate`) are the only thing live in the meantime.
+Before proposing a future migration or repeating the process on another deployment:
 
-**Steps 1–2 are bundled in the upgrade script** `_upgradeAndMigrate()` (`script/UpgradeUSDatBase.sol`): a single `forge script` run claims the M yield (L29–30) then deploys + upgrades + migrates (L40). Steps 3–4 are separate follow-up transactions.
+1. Confirm every address in `UpgradeUSDatBase` against the target chain.
+2. Confirm the ProxyAdmin is owned by the configured upgrade timelock.
+3. Confirm the proposer and canceller roles on both timelocks.
+4. Confirm `EXECUTOR_ROLE` is open if permissionless execution is expected.
+5. Confirm USDat is configured as a PYUSDX earner if PYUSDX yield is required.
+6. Confirm USDat is approved by the PYUSDX extension registry before enabling user SwapFacility operations.
+7. Run the full fork suite against the intended pre-execution block.
 
-1. **`usdat.claimYield()`** on the **live JMI** proxy — **run by the script** (`script/UpgradeUSDatBase.sol:29-30`), immediately before the upgrade. Permissionless on JMI; realizes outstanding **M** yield to `yieldRecipient` and makes `mBalance == totalSupply − totalAssets`. **Required**: `migrate` reverts `MReservesMismatch` if unrealized M yield remains.
-2. **`Upgrades.upgradeProxy(...)`** (same script, `script/UpgradeUSDatBase.sol:40`) — **deploys the new implementation** (constructor args `(PYUSDX, PYUSDX_SWAP_FACILITY)`; OZ validation with `unsafeSkipStorageCheck` + `missing-initializer` allowed, since the JMI layout reference is skipped intentionally) and atomically calls `ProxyAdmin.upgradeAndCall(proxy, newImpl, migrate(M_TOKEN))`. `migrate` then self-stops M earning and registers the held M as a replaceable alt-asset (`cap = balance = mBalance`, `decimals = 6`; `totalAssets += mBalance`).
-3. **(Optional) `usdat.setReplaceAssetWhitelistCaller(treasury, true)`** — `ASSET_CAP_MANAGER_ROLE`. Only if restricting `replaceAsset` to specific callers (§3 item 4); run it **before** step 4 so `replaceAsset` is never open once registered. Skip if permissionless `replaceAsset` is acceptable.
-4. **`ExtensionFactory.registerExtension(USDat, MULTI_MINT)`** — `FACTORY_MANAGER_ROLE`. **Last step** — flips USDat live (SwapFacility `wrap`/`unwrap`/`replaceAsset` start working).
+PYUSDX earner configuration and extension-registry approval are external operations; this repository does not currently provide scripts for them.
 
-```mermaid
-sequenceDiagram
-	participant Ops as Ops (role holders)
-	participant USDat as USDat proxy
-	participant PA as ProxyAdmin
-	participant M as M token
-	participant EF as ExtensionFactory
-	participant EM as PYUSDX earnerManager
+## 5. Implemented upgrade sequence
 
-	Note over Ops,EM: Before the sequence (in advance)
-	Ops->>EM: setAccountInfo(USDat, rate, fee, recipient)
-	Note over Ops,USDat: Migration sequence (no pause needed)
-	Ops->>USDat: claimYield()  [legacy JMI, realizes M yield]
-	Ops->>PA: upgradeAndCall(proxy, newImpl, migrate(M))
-	PA->>USDat: migrate(M)
-	USDat->>M: stopEarning()  [self opt-out]
-	USDat->>USDat: register M as replaceable alt-asset
-	Ops->>USDat: setReplaceAssetWhitelistCaller(treasury, true)  [optional]
-	Ops->>EF: registerExtension(USDat, MULTI_MINT)  [last - goes live]
-```
+### Step 1 — Deploy the implementation
 
-### Running the upgrade script
+`DeployUSDatImplementation` calls `UpgradeUSDatBase._deployImplementation()`.
 
-Steps 1–2 are run via the `Makefile`. Set these env vars in `.env`:
+The deployment:
+
+- uses constructor arguments `(PYUSDX, PYUSDX_SWAP_FACILITY)`;
+- runs OpenZeppelin upgrade validation through `Upgrades.prepareUpgrade`;
+- explicitly skips automatic storage-layout comparison because the implementation uses legacy storage-slot adapters; and
+- allows the missing initializer because production migration uses `migrate()` on an already-initialized proxy.
+
+Command:
 
 ```bash
-# Mainnet RPC URL
-MAINNET_RPC_URL=
-
-# Etherscan verification
-ETHERSCAN_API_KEY=
-MAINNET_VERIFIER_URL="https://api.etherscan.io/v2/api?chainid=1"
-
-# Signer — the ProxyAdmin owner EOA
-PROXY_ADMIN_OWNER_PRIVATE_KEY=
-
-# Only for the mainnet-fork dry run (upgrade-local)
-LOCALHOST_RPC_URL=
+make deploy-upgrade-impl
 ```
 
-- **Mainnet run:** `make upgrade-mainnet` (`Makefile:18-20`) — runs `script/UpgradeUSDat.s.sol` against `MAINNET_RPC_URL`, signed by `PROXY_ADMIN_OWNER_PRIVATE_KEY`, with `--broadcast --verify`.
-- **Mainnet-fork dry run:** `make upgrade-local` (`Makefile:14-16`) — the same script against `LOCALHOST_RPC_URL` (e.g. an `anvil --fork-url $MAINNET_RPC_URL` node). Rehearse the full upgrade here before the real run.
+After deployment, hardcode the resulting address as `UpgradeUSDatBase.NEW_IMPLEMENTATION`. The current value is `0x496a4A33b6181F4536203488d9a05AC1429E702c`, deployed at mainnet block `25,741,375` from commit `30df5c2`.
 
-Steps 3–4 (optional `replaceAsset` whitelist, then `registerExtension`) are sent separately by their respective role holders (§6).
+Do not redeploy for the already-recorded migration. This step applies to future implementations.
 
----
+### Step 2 — Build and propose the upgrade
 
-## 5. Post-migration wind-down (M → PYUSDX)
+`ProposeUSDatUpgrade` builds this operation:
 
-Once USDat is registered (§4 step 4), it is fully PYUSDX-native but its backing is still mostly M.
+```text
+SaturnTimelock.execute(
+  ProxyAdmin,
+  0,
+  ProxyAdmin.upgradeAndCall(USDat proxy, NEW_IMPLEMENTATION, USDat.migrate()),
+  bytes32(0),
+  bytes32(0)
+)
+```
 
-- A whitelisted treasury/MM calls the PYUSDX **SwapFacility `replaceAsset`** path: deposit PYUSDX, receive M 1:1. Each call decreases `assetBalanceOf(M)` and `totalAssets`, and increases PYUSDX backing.
-- This is **incremental and market-/treasury-driven** — no single-tx outlay.
-- When `assetBalanceOf(M) == 0`, call **`setAssetCap(M, 0)`** (`ASSET_CAP_MANAGER_ROLE`) to de-register M. Migration complete.
+Before scheduling, the script impersonates the timelock in simulation and calls the exact ProxyAdmin payload. This catches an invalid upgrade or migration payload before starting the 5-day delay. The simulation does not broadcast the upgrade.
 
-<callout icon="ℹ️" color="yellow_bg">
-**Unwrap capacity ramps with PYUSDX reserves.** Immediately post-migrate `_pyusdxBacking() == 0`, so `unwrap` reverts (`InsufficientPYUSDXBacking`) until `replaceAsset` builds PYUSDX reserves. **Transfers and wraps of other assets are unaffected.** This self-heals as M is replaced. M re-wrapping is blocked while `cap == balance`; as `replaceAsset` drains M, the freed headroom (`cap - balance`) would technically re-open M wrapping, so the `ASSET_CAP_MANAGER_ROLE` can lower the M cap to track the balance (`setAssetCap(M, assetBalanceOf(M))`) to keep it closed. In practice this is belt-and-suspenders — USDat's compliance whitelist already limits wraps to whitelisted addresses, none of which would wrap M.
-</callout>
+The schedule can be prepared for manual Fireblocks submission:
 
----
+```bash
+make propose-upgrade-calldata
+```
 
-## 6. Roles & authorities (live at fork block)
+Or submitted through the Fireblocks JSON-RPC bridge:
 
-<table fit-page-width="true" header-row="true">
-	<tr>
-		<td>Role</td>
-		<td>Holder</td>
-		<td>Used for</td>
-	</tr>
-	<tr>
-		<td>`DEFAULT_ADMIN_ROLE` + ProxyAdmin owner</td>
-		<td>`0x610182581C93687Ca03F4a8E7f124f8cEC616820` (EOA)</td>
-		<td>`upgradeAndCall` (the migration tx)</td>
-	</tr>
-	<tr>
-		<td>`PAUSER_ROLE` / `FREEZE` / `FORCED_TRANSFER` / `WHITELIST_MANAGER`</td>
-		<td>`0x10D59F776db12b4B271b2609CB8b7Ddd0A82703B`</td>
-		<td>operational pause control (not used by the no-pause migration)</td>
-	</tr>
-	<tr>
-		<td>`YIELD_RECIPIENT_MANAGER_ROLE`</td>
-		<td>`0x09D6E34cE24D54890fF0BC6a090b5f880F8C729f`</td>
-		<td>post-migration `claimYield` (now permissioned)</td>
-	</tr>
-	<tr>
-		<td>`ASSET_CAP_MANAGER_ROLE`</td>
-		<td>`0x7D343D17896D2cd87A49b4fB8872298A883f78f7`</td>
-		<td>`replaceAsset` whitelist; `setAssetCap(M, 0)` at end</td>
-	</tr>
-	<tr>
-		<td>`FACTORY_MANAGER_ROLE` (ExtensionFactory)</td>
-		<td>*confirm with PYUSDX team*</td>
-		<td>`registerExtension(USDat, MULTI_MINT)`</td>
-	</tr>
-	<tr>
-		<td>PYUSDX `earnerManager`</td>
-		<td>*confirm with PYUSDX team*</td>
-		<td>`setAccountInfo(USDat, …)` earner registration</td>
-	</tr>
-	<tr>
-		<td>`VERSION_MANAGER_ROLE`</td>
-		<td>unassigned (inert — pinning disabled)</td>
-		<td>—</td>
-	</tr>
-</table>
+```bash
+make propose-upgrade
+```
 
-All AccessControl state carries over the upgrade (verified by `test/UpgradeUSDatFork.t.sol::test_upgrade_preservesRoles`).
+Record the implementation, operation ID, transaction hash, proposal block, and earliest execution timestamp. The tracked mainnet proposal used transaction `0xee15b16cff07b7d34ae52e344f57ea6036efaba5888bbbf1e1c2b58c13ea64ee`.
 
----
+### Step 3 — Wait for the timelock
 
-## 7. Address reference (mainnet)
+Wait at least `timelock.getMinDelay()` from the mined schedule transaction. For the configured timelock this is 432,000 seconds, or 5 days.
 
-<table fit-page-width="true" header-row="true">
-	<tr><td>Contract</td><td>Address</td></tr>
-	<tr><td>USDat proxy</td><td>`0x23238f20b894f29041f48D88eE91131C395Aaa71`</td></tr>
-	<tr><td>M token</td><td>`0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b`</td></tr>
-	<tr><td>PYUSDX</td><td>`0xeBDB0942cE16386Ab90718C7BD10C91CDb66b14d`</td></tr>
-	<tr><td>PYUSDX SwapFacility</td><td>`0x0bC305e7e13113cAEd3f5486849e9518a1cC4173`</td></tr>
-	<tr><td>M SwapFacility (legacy)</td><td>`0xB6807116b3B1B321a390594e31ECD6e0076f6278`</td></tr>
-	<tr><td>USDC (existing alt-asset)</td><td>`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`</td></tr>
-	<tr><td>ExtensionFactory</td><td>*confirm on mainnet*</td></tr>
-</table>
+State can change during this period. In particular, M remains earning. The migration intentionally reads reserves at execution time rather than relying on a proposal-time snapshot.
 
----
+### Step 4 — Execute the upgrade and migration
 
-## 8. Verification checklist (post-migration)
+`ExecuteUSDatUpgrade` rebuilds the same operation and requires `timelock.isOperationReady(id)` before broadcasting.
 
-Mirrors the assertions in `test/UpgradeUSDatFork.t.sol`:
+```bash
+make execute-upgrade
+```
 
-- [ ] `usdat.pyusdx() == PYUSDX` and `usdat.swapFacility() == PYUSDX_SwapFacility`
-- [ ] `claimYield` realized pending M yield → `totalSupply` and `yieldRecipient` balance increased by the pending yield
-- [ ] `assetCap(M) == assetBalanceOf(M) == held M balance`, `assetDecimals(M) == 6`
-- [ ] `totalAssets == M balance + USDC balance`; USDC backing unchanged
-- [ ] `isAllowedToWrap(M, 1) == false` (cap == balance)
-- [ ] PYUSDX balance == 0 and `isAllowedToUnwrap(1) == false` (backing ramps via `replaceAsset`)
-- [ ] `M.isEarning(USDat) == false` (self opt-out succeeded — **verified on fork; no governance de-listing needed**)
-- [ ] `migrate` reverts `InvalidInitialization` if called again
-- [ ] all roles preserved (§6); holder balances preserved
-- [ ] `pinVersion`/`unpinVersion` revert `VersionPinningDisabled`
-- [ ] USDat registered as approved extension; PYUSDX earner set; `replaceAsset` whitelist configured
+Execution is permissionless because the timelock's `EXECUTOR_ROLE` is open. The executing EOA only needs gas; it does not need a USDat role.
 
----
+The implementation change and `migrate()` call are atomic inside `ProxyAdmin.upgradeAndCall`. There is no interval in which the new implementation is active but unmigrated.
 
-## 9. Open items / coordination
+The tracked mainnet execution succeeded in transaction `0x489450d4a23d076918ce70adbc4c5693b6634728269ba5991f355447c699b51f` at block `25,789,911`.
 
-1. **PYUSDX team:** confirm `earnerManager` address + agree `earnerRate` / `feeRate` / `claimRecipient` for USDat.
-2. **PYUSDX team:** confirm `ExtensionFactory` address and `FACTORY_MANAGER_ROLE` holder for `registerExtension`.
-3. **Treasury/MM (optional):** only if enforcing the `replaceAsset` whitelist — confirm the address(es) to whitelist and the wind-down cadence; otherwise `replaceAsset` stays permissionless.
-4. **Integrators:** notify that `claimYield()` is now permissioned (§2 callout).
-5. **M asset cap:** registered as `cap = mBalance`, which blocks re-wraps while `cap == balance`. As `replaceAsset` drains M, consider lowering the cap to track the balance to keep M wrapping closed (see §5) — though it is already gated by the compliance whitelist.
+## 6. What `migrate()` does
+
+At execution time:
+
+```text
+mBalance = M.balanceOf(USDat)
+backing  = totalSupply() - totalAssets()
+```
+
+If `mBalance < backing`, migration reverts with `MReservesMismatch(mBalance, backing)`.
+
+Otherwise:
+
+1. `surplus = mBalance - backing`.
+2. If the surplus is nonzero, emit `YieldClaimed(surplus)` and mint that amount of USDat to `yieldRecipient()`.
+3. Register M in `MultiMint` storage with:
+   - `cap = mBalance`
+   - `balance = mBalance`
+   - `decimals = 6`
+4. Increase `totalAssets` by `mBalance`.
+5. Emit `AssetCapSet(M_TOKEN, mBalance)`.
+
+`migrate()` does not call `stopEarning()`. M remains earning across and after the upgrade.
+
+Because `cap == balance` immediately after migration, new M wraps are initially blocked. PYUSDX unwrap capacity is initially limited by the PYUSDX actually held by USDat and grows as M is replaced.
+
+## 7. Optional replaceAsset caller restriction
+
+`replaceAsset` has a separate caller whitelist from USDat's compliance whitelist. The implemented scripts restrict it to the configured M0 solver.
+
+The asset-cap timelock is independent of the upgrade timelock, so the whitelist operation can be scheduled in parallel with the upgrade:
+
+1. Run `ProposeReplaceAssetWhitelist` as the asset-cap timelock proposer.
+2. Wait for its 5-day delay in parallel with the upgrade delay.
+3. Execute the USDat upgrade first so the `setReplaceAssetWhitelistCaller` selector exists on the proxy.
+4. Run `ExecuteReplaceAssetWhitelist` after both operations are ready.
+
+Before the whitelist operation executes, an empty `replaceAsset` whitelist means the operation is permissionless. After execution, the current configuration permits only `0x81D22b74FFC5aFa7F5d70404390233a8C45F3b92`.
+
+The mainnet-fork suite verifies that this parallel scheduling order works.
+
+## 8. Ongoing M yield
+
+M yield accrues outside `MultiMint`'s tracked asset balance. Anyone may call `claimMYield()` while M remains an allowed asset.
+
+The function:
+
+1. Requires `isAllowedAsset(M_TOKEN)`.
+2. Requires the configured yield recipient not to be frozen.
+3. Calculates `surplus = M.balanceOf(USDat) - assetBalanceOf(M)`, floored at zero.
+4. Adds the surplus to M's tracked balance and `totalAssets`.
+5. Mints the same amount of USDat to `yieldRecipient()`.
+
+The caller cannot redirect the mint. A zero-surplus call returns zero without changing state.
+
+Operationally, call `claimMYield()` regularly while the M reserve is being drained so accrued M becomes tracked backing and can also be replaced with PYUSDX.
+
+## 9. M → PYUSDX reserve wind-down
+
+Use the PYUSDX SwapFacility `replaceAsset` path to deposit PYUSDX and receive tracked M 1:1. Each replacement:
+
+- decreases `assetBalanceOf(M)` and `totalAssets`;
+- transfers M out of USDat; and
+- increases the proxy's PYUSDX backing.
+
+Continue until `assetBalanceOf(M) == 0`.
+
+### Cap behavior during the drain
+
+Migration sets `assetCap(M) == assetBalanceOf(M)`. `replaceAsset` decreases the balance without decreasing the cap, which opens M wrap headroom. The compliance whitelist limits who can wrap, but operators must account for this behavior during the wind-down.
+
+The checked-in scripts do not continuously lower the cap. They only provide the final `setAssetCap(M, 0)` operation after the tracked reserve is fully drained.
+
+## 10. Finalize M removal
+
+`ProposeZeroMAssetCap` schedules `USDat.setAssetCap(M_TOKEN, 0)` through the asset-cap timelock. It can be proposed before the drain completes so its 5-day delay matures near the expected completion time.
+
+Before execution:
+
+1. Confirm the operation is ready.
+2. Call `claimMYield()` to register outstanding M yield.
+3. Replace the newly tracked M with PYUSDX.
+4. Confirm `assetBalanceOf(M_TOKEN) == 0` again.
+5. Execute as soon as operationally practical.
+
+`ExecuteZeroMAssetCap` refuses to execute while tracked M backing is nonzero. It also reports any actual M still held by the proxy, because setting the cap to zero disables both `replaceAsset` and `claimMYield` for M. Since M remains earning, additional yield can accrue between the last claim/replacement and final execution; operators must minimize and explicitly assess that residual amount.
+
+After execution:
+
+- `assetCap(M_TOKEN) == 0`;
+- `isAllowedAsset(M_TOKEN) == false`;
+- M wraps are disabled;
+- M `replaceAsset` is disabled; and
+- `claimMYield()` is disabled.
+
+## 11. Post-operation verification
+
+Verify the following against the proxy:
+
+- the ERC-1967 implementation is the intended implementation;
+- `pyusdx()` equals `0xeBDB0942cE16386Ab90718C7BD10C91CDb66b14d`;
+- `swapFacility()` equals `0x0bC305e7e13113cAEd3f5486849e9518a1cC4173`;
+- `M_TOKEN()` equals `0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b`;
+- holder balances and `totalSupply` were preserved except for the surplus minted by `migrate()`;
+- legacy alternative-asset balances were preserved;
+- `assetCap(M)` and `assetBalanceOf(M)` match the expected migration stage;
+- `M.isEarning(USDat)` remains true until an explicitly authorized external change says otherwise;
+- all pre-upgrade AccessControl roles remain assigned to the expected holders;
+- `migrate()` cannot be called a second time;
+- `pinVersion()` and `unpinVersion()` revert with `VersionPinningDisabled`;
+- the `replaceAsset` caller whitelist matches the intended policy;
+- USDat is approved by the PYUSDX extension registry; and
+- PYUSDX earner configuration matches the intended rate, fee, and claim recipient.
+
+The fork suite exercises the implemented timelock upgrade, migration accounting, ongoing M yield, holder and role preservation, replace-asset whitelist, M-cap finalizer, and deployed implementation code hash:
+
+```bash
+MAINNET_RPC_URL=<rpc-url> \
+  forge test --match-contract UpgradeUSDatForkTest -vvv
+```
+
+## 12. Required records
+
+For each production operation retain:
+
+- source commit;
+- implementation address and runtime code hash;
+- proposal and execution transaction hashes;
+- timelock operation ID;
+- pre- and post-operation accounting snapshots;
+- role-holder confirmations;
+- PYUSDX extension and earner configuration; and
+- M reserve, tracked balance, cap, and unclaimed-yield values at finalization.
