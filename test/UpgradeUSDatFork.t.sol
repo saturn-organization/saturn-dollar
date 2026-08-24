@@ -8,7 +8,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {USDat} from "../src/USDat.sol";
-import {UpgradeUSDatBase, IJMIExtensionLegacy} from "../script/UpgradeUSDatBase.sol";
+import {UpgradeUSDatBase, IJMIExtensionLegacy} from "../script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol";
 import {IMTokenLike} from "../src/interfaces/IMTokenLike.sol";
 import {IMultiMint} from "@pyusdx/platform/projects/interfaces/IMultiMint.sol";
 
@@ -335,7 +335,7 @@ contract UpgradeUSDatForkTest is Test, UpgradeUSDatBase {
         assertTrue(usdat.isAllowedAsset(M_TOKEN));
         assertGt(usdat.assetCap(M_TOKEN), 0);
 
-        bytes memory payload = _buildZeroMAssetCapData();
+        bytes memory payload = abi.encodeCall(IMultiMint.setAssetCap, (M_TOKEN, 0));
         uint256 delay = assetCapTimelock.getMinDelay();
 
         vm.prank(ASSET_CAP_TIMELOCK_PROPOSER);

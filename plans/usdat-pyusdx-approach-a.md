@@ -232,7 +232,7 @@ Without this registration, all wrap/unwrap via SwapFacility revert.
 - (No new `ForcedTransferable` file — imported from the vendored `evm-m-extensions`, `^0.8.26`.)
 - `script/UpgradeUSDat.s.sol` — constructor args = (pyusdx, pyusdxSwapFacility); add
   `migrate` calldata; add post-upgrade `registerExtension` step (separate tx / runbook).
-- `script/VerifyCodeHash.s.sol` — re-baseline for new compiler.
+- `script/PYUSDx_Deployment_Scripts/VerifyCodeHash.s.sol` — re-baseline for new compiler.
 - PYUSDX repo PR — make the two storage accessors `virtual` **and** `Extension.pinVersion`/`unpinVersion` `virtual`.
 
 ---

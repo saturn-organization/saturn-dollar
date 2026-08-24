@@ -148,7 +148,7 @@ These are documented in `31e1d84`'s commit message and deliberately not addresse
 - The implementation contract being reachable directly (no `_disableInitializers`): it sits behind a TransparentUpgradeableProxy with no beacon, `pinVersion`/`unpinVersion` are hard-disabled, and a `migrate()` call on the bare implementation operates on empty storage. Report only with a concrete impact on the proxy's state or value.
 
 ## Production / Default Configuration
-The following reflects **static verification attempts** from the repo docs and code review of `README.md`, `plans/`, `src/USDat.sol`, `src/interfaces/IUSDat.sol`, `script/UpgradeUSDatBase.sol`, `script/ProposeUSDatUpgrade.s.sol`, `script/ExecuteUSDatUpgrade.s.sol`, and the test suite. No live-chain verification was performed here.
+The following reflects **static verification attempts** from the repo docs and code review of `README.md`, `plans/`, `src/USDat.sol`, `src/interfaces/IUSDat.sol`, `script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol`, `script/PYUSDx_Deployment_Scripts/ProposeUSDatUpgrade.s.sol`, `script/PYUSDx_Deployment_Scripts/ExecuteUSDatUpgrade.s.sol`, and the test suite. No live-chain verification was performed here.
 
 ### Enabled
 - **Transparent upgradeable proxy architecture:** documented in repo README and migration notes

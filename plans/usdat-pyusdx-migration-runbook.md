@@ -11,14 +11,14 @@
 This runbook follows the checked-in implementation and scripts:
 
 - `src/USDat.sol`
-- `script/UpgradeUSDatBase.sol`
-- `script/DeployUSDatImplementation.s.sol`
-- `script/ProposeUSDatUpgrade.s.sol`
-- `script/ExecuteUSDatUpgrade.s.sol`
-- `script/ProposeReplaceAssetWhitelist.s.sol`
-- `script/ExecuteReplaceAssetWhitelist.s.sol`
-- `script/ProposeZeroMAssetCap.s.sol`
-- `script/ExecuteZeroMAssetCap.s.sol`
+- `script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol`
+- `script/PYUSDx_Deployment_Scripts/DeployUSDatImplementation.s.sol`
+- `script/PYUSDx_Deployment_Scripts/ProposeUSDatUpgrade.s.sol`
+- `script/PYUSDx_Deployment_Scripts/ExecuteUSDatUpgrade.s.sol`
+- `script/PYUSDx_Deployment_Scripts/ProposeReplaceAssetWhitelist.s.sol`
+- `script/PYUSDx_Deployment_Scripts/ExecuteReplaceAssetWhitelist.s.sol`
+- `script/PYUSDx_Cleanup_Scripts/ProposeZeroMAssetCap.s.sol`
+- `script/PYUSDx_Cleanup_Scripts/ExecuteZeroMAssetCap.s.sol`
 - `test/UpgradeUSDatFork.t.sol`
 
 If this document conflicts with those files, the code is authoritative and the runbook must be updated before the next operation.

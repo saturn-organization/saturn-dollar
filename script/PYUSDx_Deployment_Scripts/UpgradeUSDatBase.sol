@@ -4,7 +4,7 @@ pragma solidity 0.8.34;
 import {Options, Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {IProxyAdmin} from "openzeppelin-foundry-upgrades/internal/interfaces/IProxyAdmin.sol";
 
-import {USDat} from "../src/USDat.sol";
+import {USDat} from "../../src/USDat.sol";
 
 /// @dev Minimal legacy surface needed to interact with the live JMIExtension implementation pre-upgrade.
 ///      Declared here (rather than imported) because the canonical interface is pinned to pragma 0.8.26.
@@ -24,11 +24,6 @@ interface IJMIExtensionLegacy {
 ///      `abi.encodeCall` can select it unambiguously (the interface also exposes an array-batch overload).
 interface ISetReplaceAssetWhitelistCaller {
     function setReplaceAssetWhitelistCaller(address caller, bool allowed) external;
-}
-
-/// @dev MultiMint's `setAssetCap`, declared here to avoid importing the full IMultiMint surface.
-interface ISetAssetCap {
-    function setAssetCap(address asset, uint256 cap) external;
 }
 
 contract UpgradeUSDatBase {
@@ -86,13 +81,5 @@ contract UpgradeUSDatBase {
     ///      this selector does not exist on the pre-upgrade JMIExtension implementation.
     function _buildWhitelistSolverData() internal pure returns (bytes memory payload) {
         payload = abi.encodeCall(ISetReplaceAssetWhitelistCaller.setReplaceAssetWhitelistCaller, (SOLVER, true));
-    }
-
-    /// @dev Build the call the asset-cap-manager timelock makes on execute: USDat.setAssetCap(M_TOKEN, 0).
-    ///      The end-state finalizer for the M→PYUSDX migration: once M is fully drained via `replaceAsset`,
-    ///      zeroing the cap makes `isAllowedAsset(M)` false, permanently disabling M wraps — and also
-    ///      M `replaceAsset` and `claimMYield`, so it must run only after M is drained and any M yield swept.
-    function _buildZeroMAssetCapData() internal pure returns (bytes memory payload) {
-        payload = abi.encodeCall(ISetAssetCap.setAssetCap, (M_TOKEN, 0));
     }
 }
