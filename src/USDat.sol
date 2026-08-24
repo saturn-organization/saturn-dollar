@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.26;
+pragma solidity 0.8.34;
 
-import {JMIExtension} from "@m-extensions/projects/jmi/JMIExtension.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+
 import {ForcedTransferable} from "@m-extensions/components/forcedTransferable/ForcedTransferable.sol";
-import {IMTokenLike} from "@m-extensions/interfaces/IMTokenLike.sol";
+import {UIntMath} from "common/libs/UIntMath.sol";
 
-import {IUSDat} from "./IUSDat.sol";
+import {MultiMint} from "@pyusdx/platform/projects/MultiMint.sol";
 
-contract USDat is IUSDat, JMIExtension, ForcedTransferable {
+import {IUSDat} from "./interfaces/IUSDat.sol";
+
+/**
+ * @title  USDat
+ * @notice Upgrade-only PYUSDX extension. This implementation replaces the legacy JMIExtension (M-backed)
+ *         implementation behind the existing USDat TransparentUpgradeableProxy. It is never deployed fresh,
+ *         so it exposes `migrate` (a reinitializer) rather than `initialize`.
+ */
+contract USDat is IUSDat, MultiMint, ForcedTransferable {
     /// @custom:storage-location erc7201:Saturn.storage.Whitelist
     struct WhitelistStorage {
         bool isEnabled;
@@ -18,28 +27,131 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     bytes32 private constant _WHITELIST_STORAGE_LOCATION =
         0x1d6c3b82f2027bd0b336e517c3a50a0483eb4d2c5cd82c6a491448d31b621000;
 
+    // NOTE: Legacy slot preserved so MultiMint storage reads/writes land on the pre-upgrade JMIExtension data.
+    // keccak256(abi.encode(uint256(keccak256("M0.storage.JMIExtension")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _LEGACY_JMI_STORAGE_LOCATION =
+        0x4717d46f2e033163981fa31651301a35281b6b08316965d315fd1577bad94b00;
+
+    // NOTE: Legacy slot preserved so YieldToOne storage reads/writes land on the pre-upgrade MYieldToOne data.
+    // keccak256(abi.encode(uint256(keccak256("M0.storage.MYieldToOne")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _LEGACY_YIELD_TO_ONE_STORAGE_LOCATION =
+        0xee2f6fc7e2e5879b17985791e0d12536cba689bda43c77b8911497248f4af100;
+
     function _getWhitelistStorage() private pure returns (WhitelistStorage storage $) {
         assembly {
             $.slot := _WHITELIST_STORAGE_LOCATION
         }
     }
 
+    /// @dev Point MultiMint storage at the pre-upgrade JMIExtension slot (layouts are append-only compatible).
+    function _getMultiMintStorage() internal pure override returns (MultiMintStorage storage $) {
+        assembly {
+            $.slot := _LEGACY_JMI_STORAGE_LOCATION
+        }
+    }
+
+    /// @dev Point YieldToOne storage at the pre-upgrade MYieldToOne slot (layouts are identical).
+    function _getYieldToOneStorage() internal pure override returns (YieldToOneStorage storage $) {
+        assembly {
+            $.slot := _LEGACY_YIELD_TO_ONE_STORAGE_LOCATION
+        }
+    }
+
     /// @inheritdoc IUSDat
     bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
 
+    /// @inheritdoc IUSDat
+    address public constant M_TOKEN = 0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address mToken_, address swapFacility_) JMIExtension(mToken_, swapFacility_) {
-        _disableInitializers();
+    constructor(address pyusdx_, address swapFacility_) MultiMint(pyusdx_, swapFacility_) {}
+
+    /* ============ Migration ============ */
+
+    /// @inheritdoc IUSDat
+    function migrate() external reinitializer(2) {
+        // NOTE: The held M must cover the M-backed portion `totalSupply - totalAssets`. M earning is
+        //       left on, so this balance already includes all yield accrued up to this block.
+        uint256 mBalance = IERC20(M_TOKEN).balanceOf(address(this));
+        uint256 backing = totalSupply() - totalAssets();
+
+        if (mBalance < backing) revert MReservesMismatch(mBalance, backing);
+
+        // NOTE: Realize any surplus (M yield accrued since the pre-upgrade `claimYield`, or M
+        //       donations) to the yield recipient — exactly as the legacy `claimYield` would have —
+        //       so M accruing between the `claimYield` and upgrade transactions cannot revert the
+        //       upgrade, and `totalSupply - totalAssets` matches the M being registered below.
+        uint256 surplus = mBalance - backing;
+
+        if (surplus != 0) {
+            emit YieldClaimed(surplus);
+            _mint(yieldRecipient(), surplus);
+        }
+
+        // NOTE: Register the held M as a replaceable alt-asset.
+        //       M can then be replaced with PYUSDX over time via `replaceAsset`.
+        MultiMintStorage storage $ = _getMultiMintStorage();
+
+        $.assets[M_TOKEN] = Asset({cap: mBalance, balance: UIntMath.safe240(mBalance), decimals: 6});
+        $.totalAssets += mBalance;
+
+        emit AssetCapSet(M_TOKEN, mBalance);
     }
 
-    function initialize(address yieldRecipient, address admin, address compliance, address processor)
-        public
-        initializer
-    {
-        __JMIExtension_init("USDat", "USDat", yieldRecipient, admin, processor, compliance, compliance, processor);
+    /* ============ M Yield Functions ============ */
 
-        __ForcedTransferable_init(compliance);
-        _grantRole(WHITELIST_MANAGER_ROLE, compliance);
+    /// @inheritdoc IUSDat
+    function claimMYield() external returns (uint256) {
+        if (!isAllowedAsset(M_TOKEN)) revert AssetNotAllowed(M_TOKEN);
+
+        address yieldRecipient = yieldRecipient();
+        _revertIfFrozen(yieldRecipient);
+
+        MultiMintStorage storage $ = _getMultiMintStorage();
+        uint256 surplus = _mSurplus($);
+
+        if (surplus == 0) return 0;
+
+        $.assets[M_TOKEN].balance += UIntMath.safe240(surplus);
+        $.totalAssets += surplus;
+
+        emit YieldClaimed(surplus);
+        _mint(yieldRecipient, surplus);
+
+        return surplus;
+    }
+
+    /// @inheritdoc IUSDat
+    function mYield() external view returns (uint256) {
+        if (!isAllowedAsset(M_TOKEN)) return 0;
+
+        return _mSurplus(_getMultiMintStorage());
+    }
+
+    /**
+     * @dev    Returns the held M not yet registered as backing — M yield accrued since the last claim,
+     *         plus any M donation.
+     * @param  $ The MultiMint storage pointer.
+     * @return The claimable M surplus.
+     */
+    function _mSurplus(MultiMintStorage storage $) internal view returns (uint256) {
+        uint256 balance = IERC20(M_TOKEN).balanceOf(address(this));
+        uint256 tracked = $.assets[M_TOKEN].balance;
+
+        return balance > tracked ? balance - tracked : 0;
+    }
+
+    /* ============ Version Pinning (disabled) ============ */
+
+    /// @dev USDat sits behind a TransparentUpgradeableProxy with no origin beacon, so version-pinning is
+    ///      meaningless and `unpinVersion` would zero the live implementation slot. Both are disabled.
+    function pinVersion(uint256) external pure override {
+        revert VersionPinningDisabled();
+    }
+
+    /// @dev Disabled — see `pinVersion`.
+    function unpinVersion() external pure override {
+        revert VersionPinningDisabled();
     }
 
     /* ============ Whitelist Functions ============ */
@@ -89,7 +201,7 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     /* ============ Internal Functions ============ */
 
     /**
-     * @dev   Hook called before wrapping M into USDat.
+     * @dev   Hook called before wrapping PYUSDX into USDat.
      *        Enforces whitelist requirements for both the depositor and recipient.
      * @param account   The address initiating the wrap (depositor).
      * @param recipient The address that will receive the minted USDat tokens.
@@ -102,7 +214,7 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     }
 
     /**
-     * @dev   Hook called before wrapping an allowed asset (via JMI) into USDat.
+     * @dev   Hook called before wrapping an allowed asset (via MultiMint) into USDat.
      *        Enforces whitelist requirements for both the depositor and recipient.
      * @param asset     The address of the asset being wrapped.
      * @param account   The address initiating the wrap (depositor).
@@ -121,7 +233,7 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
     }
 
     /**
-     * @dev   Hook called before unwrapping USDat back into M.
+     * @dev   Hook called before unwrapping USDat back into PYUSDX.
      *        Enforces whitelist requirements for the account burning tokens.
      * @param account The address initiating the unwrap (burning USDat).
      * @param amount  The amount of USDat tokens being unwrapped.
@@ -154,7 +266,7 @@ contract USDat is IUSDat, JMIExtension, ForcedTransferable {
      */
     function _forceTransfer(address frozenAccount, address recipient, uint256 amount) internal override {
         _revertIfNotFrozen(frozenAccount);
-        _revertIfInvalidRecipient(recipient);
+        _revertIfZeroAccount(recipient);
 
         emit Transfer(frozenAccount, recipient, amount);
         emit ForcedTransfer(frozenAccount, recipient, msg.sender, amount);

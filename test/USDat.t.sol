@@ -1,97 +1,579 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.26;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {
     IAccessControl
 } from "openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {PausableUpgradeable} from "openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
-import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {MockM, MockSwapFacility, MockRegistrar, MockERC20} from "m-extensions/test/utils/Mocks.sol";
-import {IForcedTransferable} from "@m-extensions/components/forcedTransferable/IForcedTransferable.sol";
+import {PYUSDX} from "@pyusdx/PYUSDX.sol";
+import {IPYUSDX} from "@pyusdx/IPYUSDX.sol";
+import {IMultiMint} from "@pyusdx/platform/projects/interfaces/IMultiMint.sol";
+import {IYieldToOne} from "@pyusdx/platform/projects/interfaces/IYieldToOne.sol";
+import {IExtension} from "@pyusdx/platform/interfaces/IExtension.sol";
+import {IArrayErrors} from "@m-extensions/interfaces/IArrayErrors.sol";
 import {IFreezable} from "@m-extensions/components/freezable/IFreezable.sol";
-import {IMExtension} from "@m-extensions/interfaces/IMExtension.sol";
+
+import {PYUSDXHarness} from "../lib/PYUSDX/test/harness/PYUSDXHarness.sol";
+import {MockIssuerGateway} from "../lib/PYUSDX/test/mock/MockIssuerGateway.sol";
+import {MockSwapFacility} from "../lib/PYUSDX/test/mock/MockSwapFacility.sol";
 
 import {USDat} from "../src/USDat.sol";
-import {IUSDat} from "../src/IUSDat.sol";
+import {IUSDat} from "../src/interfaces/IUSDat.sol";
+import {USDatHarness, MockMToken} from "./USDatHarness.sol";
 
 contract USDatTest is Test {
-    USDat public usdat;
-    MockM public mToken;
-    MockRegistrar public registrar;
+    USDatHarness public usdat;
+    PYUSDXHarness public pyusdx;
+    MockIssuerGateway public issuerGateway;
     MockSwapFacility public swapFacility;
+    MockMToken public mToken;
 
-    // Role constants
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 public constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
-    bytes32 public constant FREEZE_MANAGER_ROLE = keccak256("FREEZE_MANAGER_ROLE");
     bytes32 public constant FORCED_TRANSFER_MANAGER_ROLE = keccak256("FORCED_TRANSFER_MANAGER_ROLE");
+    bytes32 public constant FREEZE_MANAGER_ROLE = keccak256("FREEZE_MANAGER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant ASSET_CAP_MANAGER_ROLE = keccak256("ASSET_CAP_MANAGER_ROLE");
     bytes32 public constant YIELD_RECIPIENT_MANAGER_ROLE = keccak256("YIELD_RECIPIENT_MANAGER_ROLE");
+    bytes32 public constant VERSION_MANAGER_ROLE = keccak256("VERSION_MANAGER_ROLE");
 
-    // Test addresses
+    // USDat config
     address public admin = makeAddr("admin");
     address public compliance = makeAddr("compliance");
     address public processor = makeAddr("processor");
     address public yieldRecipient = makeAddr("yieldRecipient");
-    address public pauser = makeAddr("pauser");
 
+    // PYUSDX config
+    address public pyusdxAdmin = makeAddr("pyusdxAdmin");
+    address public pauser = makeAddr("pauser");
+    address public freezeManager = makeAddr("freezeManager");
+    address public earnerManager = makeAddr("earnerManager");
+    address public rateManager = makeAddr("rateManager");
+
+    // Actors
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
-    address public carol = makeAddr("carol");
+    address public treasury = makeAddr("treasury");
+
+    uint256 public constant AMOUNT = 1_000e6;
 
     function setUp() public {
-        // Deploy mocks
-        mToken = new MockM();
-        registrar = new MockRegistrar();
+        issuerGateway = new MockIssuerGateway(address(0));
 
-        // Deploy MockSwapFacility
-        swapFacility = new MockSwapFacility();
-
-        // Deploy USDat
-        address implementation = address(new USDat(address(mToken), address(swapFacility)));
-        usdat = USDat(
+        address pyusdxImpl = address(new PYUSDXHarness());
+        pyusdx = PYUSDXHarness(
             UnsafeUpgrades.deployTransparentProxy(
-                implementation,
-                admin,
-                abi.encodeWithSelector(USDat.initialize.selector, yieldRecipient, admin, compliance, processor)
+                pyusdxImpl,
+                pyusdxAdmin,
+                abi.encodeCall(
+                    PYUSDX.initialize,
+                    (IPYUSDX.InitializeParams({
+                            name: "PYUSDx",
+                            symbol: "PYUSDx",
+                            admin: pyusdxAdmin,
+                            pauser: pauser,
+                            freezeManager: freezeManager,
+                            forcedTransferManager: address(1),
+                            earnerManager: earnerManager,
+                            rateLimitManager: rateManager,
+                            issuer: address(issuerGateway)
+                        }))
+                )
             )
         );
 
-        // Set up earner in registrar
-        registrar.setEarner(address(usdat), true);
+        issuerGateway.setPyusdx(address(pyusdx));
 
-        // Set initial M token index
-        mToken.setCurrentIndex(1e12);
+        vm.prank(rateManager);
+        pyusdx.setRateLimit(address(issuerGateway), type(uint128).max, 0, true);
+
+        swapFacility = new MockSwapFacility(address(pyusdx));
+
+        address usdatImpl = address(new USDatHarness(address(pyusdx), address(swapFacility)));
+        usdat = USDatHarness(
+            UnsafeUpgrades.deployTransparentProxy(
+                usdatImpl,
+                admin,
+                abi.encodeWithSelector(USDatHarness.initialize.selector, yieldRecipient, admin, compliance, processor)
+            )
+        );
+
+        vm.prank(earnerManager);
+        pyusdx.setAccountInfo(address(usdat), 500, 0, address(0));
+        pyusdx.setAccountRateBps(address(usdat), uint16(500));
+
+        // USDat pins M to a hardcoded mainnet address, so the mock has to stand at that exact address.
+        deployCodeTo("USDatHarness.sol:MockMToken", usdat.M_TOKEN());
+        mToken = MockMToken(usdat.M_TOKEN());
     }
 
-    /* ============ Initialization Tests ============ */
+    /* ============ Helpers ============ */
 
-    function test_initialize() external view {
-        assertEq(usdat.name(), "USDat");
-        assertEq(usdat.symbol(), "USDat");
-        assertEq(usdat.decimals(), 6);
-        assertEq(usdat.mToken(), address(mToken));
-        assertEq(usdat.swapFacility(), address(swapFacility));
-        assertEq(usdat.yieldRecipient(), yieldRecipient);
+    function _mintPyusdx(address to, uint256 amount) internal {
+        issuerGateway.mint(to, amount);
+    }
 
-        // Check roles
+    function _wrap(address from, address recipient, uint256 amount) internal {
+        _mintPyusdx(from, amount);
+
+        vm.startPrank(from);
+
+        pyusdx.approve(address(swapFacility), amount);
+        swapFacility.swapIn(address(usdat), amount, recipient);
+
+        vm.stopPrank();
+    }
+
+    function _unwrap(address from, address recipient, uint256 amount) internal {
+        vm.startPrank(from);
+
+        usdat.approve(address(swapFacility), amount);
+        swapFacility.swapOut(address(usdat), amount, recipient);
+
+        vm.stopPrank();
+    }
+
+    /// @dev Sets up the post-claimYield pre-migration state: supply `s` exists and the contract holds `s` M.
+    function _setUpForMigration(uint256 s) internal {
+        usdat.mintForTest(alice, s);
+        mToken.mint(address(usdat), s);
+    }
+
+    /* ============ initialize / roles ============ */
+
+    function test_initialize_grantsRoles() public view {
         assertTrue(usdat.hasRole(DEFAULT_ADMIN_ROLE, admin));
         assertTrue(usdat.hasRole(WHITELIST_MANAGER_ROLE, compliance));
         assertTrue(usdat.hasRole(FORCED_TRANSFER_MANAGER_ROLE, compliance));
         assertTrue(usdat.hasRole(FREEZE_MANAGER_ROLE, compliance));
         assertTrue(usdat.hasRole(PAUSER_ROLE, compliance));
         assertTrue(usdat.hasRole(YIELD_RECIPIENT_MANAGER_ROLE, processor));
+        assertTrue(usdat.hasRole(ASSET_CAP_MANAGER_ROLE, processor));
 
-        // Check initial state
-        assertFalse(usdat.isWhitelistEnabled());
+        assertEq(usdat.yieldRecipient(), yieldRecipient);
+        assertEq(usdat.pyusdx(), address(pyusdx));
+        assertEq(usdat.name(), "USDat");
+        assertEq(usdat.symbol(), "USDat");
+        assertEq(usdat.decimals(), 6);
     }
 
     function test_initialize_cannotReinitialize() external {
-        vm.expectRevert();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         usdat.initialize(yieldRecipient, admin, compliance, processor);
+    }
+
+    /* ============ wrap / unwrap ============ */
+
+    function test_wrap_mintsUSDat() public {
+        _wrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), AMOUNT);
+        assertEq(usdat.totalSupply(), AMOUNT);
+        assertEq(pyusdx.balanceOf(address(usdat)), AMOUNT);
+    }
+
+    function test_unwrap_returnsPyusdx() public {
+        _wrap(alice, alice, AMOUNT);
+        _unwrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), 0);
+        assertEq(usdat.totalSupply(), 0);
+        assertEq(pyusdx.balanceOf(alice), AMOUNT);
+    }
+
+    /* ============ whitelist gating ============ */
+
+    function test_wrap_revertsWhenRecipientNotWhitelisted() public {
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        _mintPyusdx(alice, AMOUNT);
+
+        vm.startPrank(alice);
+
+        pyusdx.approve(address(swapFacility), AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
+        swapFacility.swapIn(address(usdat), AMOUNT, alice);
+
+        vm.stopPrank();
+    }
+
+    function test_wrap_succeedsWhenWhitelisted() public {
+        vm.startPrank(compliance);
+
+        usdat.enableWhitelist();
+        usdat.whitelist(alice);
+
+        vm.stopPrank();
+
+        _wrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), AMOUNT);
+    }
+
+    function test_unwrap_revertsWhenNotWhitelisted() public {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        vm.startPrank(alice);
+
+        usdat.approve(address(swapFacility), AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
+        swapFacility.swapOut(address(usdat), AMOUNT, alice);
+
+        vm.stopPrank();
+    }
+
+    /* ============ forced transfer ============ */
+
+    function test_forceTransfer_seizesFromFrozenAccount() public {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.prank(compliance);
+        usdat.freeze(alice);
+
+        vm.prank(compliance);
+        usdat.forceTransfer(alice, bob, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), 0);
+        assertEq(usdat.balanceOf(bob), AMOUNT);
+    }
+
+    function test_forceTransfer_revertsWhenNotFrozen() public {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountNotFrozen.selector, alice));
+
+        vm.prank(compliance);
+        usdat.forceTransfer(alice, bob, AMOUNT);
+    }
+
+    function test_forceTransfer_revertsForNonManager() public {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, bob, FORCED_TRANSFER_MANAGER_ROLE
+            )
+        );
+
+        vm.prank(bob);
+        usdat.forceTransfer(alice, bob, AMOUNT);
+    }
+
+    /* ============ claimYield permissioning ============ */
+
+    function test_claimYield_revertsForNonManager() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, bob, YIELD_RECIPIENT_MANAGER_ROLE
+            )
+        );
+
+        vm.prank(bob);
+        usdat.claimYield();
+    }
+
+    function test_claimYield_succeedsForManager() public {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.warp(block.timestamp + 365 days);
+
+        uint256 balanceBefore = usdat.balanceOf(yieldRecipient);
+
+        vm.prank(processor);
+        uint256 yield = usdat.claimYield();
+
+        assertEq(usdat.balanceOf(yieldRecipient), balanceBefore + yield);
+    }
+
+    /* ============ version pinning disabled ============ */
+
+    function test_pinVersion_revertsForEveryone() public {
+        vm.expectRevert(IUSDat.VersionPinningDisabled.selector);
+
+        vm.prank(admin); // holds VERSION_MANAGER_ROLE, yet still reverts (the override, not the role check)
+        usdat.pinVersion(1);
+
+        vm.expectRevert(IUSDat.VersionPinningDisabled.selector);
+
+        vm.prank(bob);
+        usdat.pinVersion(1);
+    }
+
+    function test_unpinVersion_revertsForEveryone() public {
+        vm.expectRevert(IUSDat.VersionPinningDisabled.selector);
+
+        vm.prank(admin);
+        usdat.unpinVersion();
+
+        vm.expectRevert(IUSDat.VersionPinningDisabled.selector);
+
+        vm.prank(bob);
+        usdat.unpinVersion();
+    }
+
+    /* ============ migrate ============ */
+
+    function test_migrate_registersM() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        assertEq(usdat.assetCap(address(mToken)), AMOUNT);
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT);
+        assertEq(usdat.assetDecimals(address(mToken)), 6);
+        assertEq(usdat.totalAssets(), AMOUNT);
+        assertEq(usdat.totalSupply(), AMOUNT); // unchanged (no mint)
+        assertFalse(usdat.isAllowedToUnwrap(1)); // _pyusdxBacking() == 0
+    }
+
+    function test_migrate_cannotRunTwice() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        // reinitializer(2) guard
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        usdat.migrate();
+    }
+
+    function test_migrate_mintsSurplusToYieldRecipient() public {
+        _setUpForMigration(AMOUNT);
+
+        // M yield accrued since the pre-upgrade claimYield (or an M donation) must not revert the
+        // upgrade; it is realized to the yield recipient, as the legacy claimYield would have done.
+        uint256 surplus = 25e6;
+        mToken.mint(address(usdat), surplus); // mBalance = AMOUNT + surplus, backing = AMOUNT
+
+        usdat.migrate();
+
+        assertEq(usdat.totalSupply(), AMOUNT + surplus);
+        assertEq(usdat.balanceOf(yieldRecipient), surplus);
+        assertEq(usdat.assetCap(address(mToken)), AMOUNT + surplus);
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT + surplus);
+        assertEq(usdat.totalAssets(), AMOUNT + surplus);
+        assertFalse(usdat.isAllowedToUnwrap(1)); // _pyusdxBacking() still 0
+    }
+
+    function test_migrate_revertsOnReservesMismatch() public {
+        usdat.mintForTest(alice, AMOUNT);
+        mToken.mint(address(usdat), AMOUNT - 1); // mBalance = AMOUNT - 1 < backing = AMOUNT
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.MReservesMismatch.selector, AMOUNT - 1, AMOUNT));
+        usdat.migrate();
+    }
+
+    function test_migrate_blocksMWraps() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        // cap == balance ⇒ no room to wrap M in
+        assertFalse(usdat.isAllowedToWrap(address(mToken), 1));
+    }
+
+    /* ============ claimMYield ============ */
+
+    function test_claimMYield_mintsSurplusToYieldRecipient() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        // M keeps earning after migrate; accrued yield lands on the balance, untracked by MultiMint.
+        uint256 surplus = 25e6;
+        mToken.mint(address(usdat), surplus);
+
+        vm.expectEmit(true, true, true, true);
+        emit IYieldToOne.YieldClaimed(surplus);
+
+        // Permissionless: bob holds no role.
+        vm.prank(bob);
+        uint256 claimed = usdat.claimMYield();
+
+        assertEq(claimed, surplus);
+        assertEq(usdat.balanceOf(yieldRecipient), surplus);
+        assertEq(usdat.totalSupply(), AMOUNT + surplus);
+
+        // The surplus is registered as backing, so the PYUSDX-backed portion stays at zero.
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT + surplus);
+        assertEq(usdat.totalAssets(), AMOUNT + surplus);
+        assertFalse(usdat.isAllowedToUnwrap(1));
+
+        // M wraps stay blocked.
+        assertEq(usdat.assetCap(address(mToken)), AMOUNT);
+        assertFalse(usdat.isAllowedToWrap(address(mToken), 1));
+    }
+
+    function test_claimMYield_zeroSurplus_returnsZero() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        vm.recordLogs();
+
+        vm.prank(bob);
+        uint256 claimed = usdat.claimMYield();
+
+        assertEq(claimed, 0);
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertEq(usdat.totalSupply(), AMOUNT);
+        assertEq(usdat.totalAssets(), AMOUNT);
+        assertEq(usdat.balanceOf(yieldRecipient), 0);
+    }
+
+    function test_claimMYield_isRepeatable() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        mToken.mint(address(usdat), 10e6);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), 10e6);
+
+        // A second round of accrual is claimable on top of the first.
+        mToken.mint(address(usdat), 4e6);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), 4e6);
+
+        assertEq(usdat.balanceOf(yieldRecipient), 14e6);
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT + 14e6);
+        assertEq(usdat.totalAssets(), AMOUNT + 14e6);
+    }
+
+    function test_claimMYield_revertsBeforeMigration() public {
+        _setUpForMigration(AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IMultiMint.AssetNotAllowed.selector, usdat.M_TOKEN()));
+
+        vm.prank(bob);
+        usdat.claimMYield();
+    }
+
+    function test_claimMYield_revertsWhenYieldRecipientFrozen() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        mToken.mint(address(usdat), 25e6);
+
+        vm.prank(compliance);
+        usdat.freeze(yieldRecipient);
+
+        vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountFrozen.selector, yieldRecipient));
+
+        vm.prank(bob);
+        usdat.claimMYield();
+    }
+
+    function test_claimMYield_afterReplaceAsset_claimsOnlyUntrackedSurplus() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        vm.prank(processor);
+        usdat.setReplaceAssetWhitelistCaller(treasury, true);
+
+        uint256 drain = 400e6;
+        _mintPyusdx(treasury, drain);
+
+        vm.startPrank(treasury);
+
+        pyusdx.approve(address(swapFacility), drain);
+        swapFacility.replaceAsset(address(usdat), address(mToken), drain, treasury);
+
+        vm.stopPrank();
+
+        // Draining moves tracked and held M together, so it leaves nothing to claim.
+        assertEq(usdat.mYield(), 0);
+
+        uint256 surplus = 5e6;
+        mToken.mint(address(usdat), surplus);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), surplus);
+
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT - drain + surplus);
+        assertEq(usdat.assetBalanceOf(address(mToken)), mToken.balanceOf(address(usdat)));
+    }
+
+    /* ============ mYield ============ */
+
+    function test_mYield_matchesClaimedAmount() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        assertEq(usdat.mYield(), 0);
+
+        uint256 surplus = 25e6;
+        mToken.mint(address(usdat), surplus);
+
+        uint256 pending = usdat.mYield();
+        assertEq(pending, surplus);
+
+        vm.prank(bob);
+        assertEq(usdat.claimMYield(), pending); // the claim pays exactly what the view promised
+
+        assertEq(usdat.mYield(), 0);
+    }
+
+    function test_mYield_beforeMigration_returnsZero() public {
+        _setUpForMigration(AMOUNT);
+
+        // M is held but not registered, so nothing is claimable yet — the view must not revert.
+        assertEq(usdat.mYield(), 0);
+    }
+
+    /* ============ replaceAsset drain ============ */
+
+    function test_replaceAsset_drainsMForPyusdx() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        // whitelist treasury as a replaceAsset caller
+        vm.prank(processor);
+        usdat.setReplaceAssetWhitelistCaller(treasury, true);
+
+        uint256 drain = 400e6;
+        _mintPyusdx(treasury, drain);
+
+        vm.startPrank(treasury);
+
+        pyusdx.approve(address(swapFacility), drain);
+        swapFacility.replaceAsset(address(usdat), address(mToken), drain, treasury);
+
+        vm.stopPrank();
+
+        assertEq(usdat.assetBalanceOf(address(mToken)), AMOUNT - drain);
+        assertEq(usdat.totalAssets(), AMOUNT - drain);
+        assertEq(mToken.balanceOf(treasury), drain); // treasury received M
+        assertEq(pyusdx.balanceOf(address(usdat)), drain); // PYUSDX reserves built
+        assertTrue(usdat.isAllowedToUnwrap(drain)); // backing grew to `drain`
+    }
+
+    function test_replaceAsset_revertsForNonWhitelistedCaller() public {
+        _setUpForMigration(AMOUNT);
+        usdat.migrate();
+
+        // whitelist someone else so the whitelist is non-empty (enforced)
+        vm.prank(processor);
+        usdat.setReplaceAssetWhitelistCaller(bob, true);
+
+        uint256 drain = 100e6;
+        _mintPyusdx(treasury, drain);
+
+        vm.startPrank(treasury);
+
+        pyusdx.approve(address(swapFacility), drain);
+
+        vm.expectRevert(abi.encodeWithSelector(IMultiMint.CallerNotAllowed.selector, treasury));
+        swapFacility.replaceAsset(address(usdat), address(mToken), drain, treasury);
+
+        vm.stopPrank();
     }
 
     /* ============ Whitelist Enable/Disable Tests ============ */
@@ -248,313 +730,53 @@ contract USDatTest is Test {
         assertFalse(usdat.isWhitelisted(alice));
     }
 
-    /* ============ Wrap with Whitelist Tests ============ */
-
-    function test_wrap_whitelistDisabled() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: Give M to swap facility and approve
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Wrap should succeed without whitelist
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrap_whitelistEnabled_accountWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Enable whitelist and whitelist alice
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        vm.prank(compliance);
-        usdat.whitelist(alice);
-
-        // Setup: Give M to swap facility
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Set msgSender to alice (the depositor)
-        swapFacility.setMsgSender(alice);
-
-        // Wrap should succeed
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrap_whitelistEnabled_accountNotWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Enable whitelist but don't whitelist alice
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        // Setup: Give M to swap facility
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Set msgSender to alice (the depositor, not whitelisted)
-        swapFacility.setMsgSender(alice);
-
-        // Wrap should fail - alice (depositor) is not whitelisted
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-    }
-
-    function test_wrap_whitelistEnabled_recipientNotWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Enable whitelist and whitelist swap facility (caller in msgSender context)
-        // but don't whitelist bob (recipient)
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        vm.prank(compliance);
-        usdat.whitelist(alice);
-
-        // Setup
-        mToken.setBalanceOf(address(swapFacility), amount);
-
-        // Set msgSender to alice (whitelisted)
-        swapFacility.setMsgSender(alice);
-
-        // Should fail because bob (recipient) is not whitelisted
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, bob));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, amount);
-    }
-
-    /* ============ Unwrap with Whitelist Tests ============ */
-
-    function test_unwrap_whitelistDisabled() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: wrap first
-        mToken.setBalanceOf(address(swapFacility), amount);
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        // Give usdat some M for unwrapping
-        mToken.setBalanceOf(address(usdat), amount);
-
-        // Transfer tokens to swap facility for unwrap
-        vm.prank(alice);
-        usdat.transfer(address(swapFacility), amount);
-
-        // Unwrap should succeed
-        vm.prank(address(swapFacility));
-        usdat.unwrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), 0);
-    }
-
-    function test_unwrap_whitelistEnabled_accountWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Setup whitelist
-        vm.prank(compliance);
-        usdat.whitelist(alice);
-
-        // Setup: wrap first (whitelist disabled)
-        mToken.setBalanceOf(address(swapFacility), amount);
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        // Enable whitelist
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        // Give usdat some M for unwrapping
-        mToken.setBalanceOf(address(usdat), amount);
-
-        // Transfer tokens to swap facility for unwrap
-        vm.prank(alice);
-        usdat.transfer(address(swapFacility), amount);
-
-        // Set msgSender
-        swapFacility.setMsgSender(alice);
-
-        // Unwrap should succeed
-        vm.prank(address(swapFacility));
-        usdat.unwrap(alice, amount);
-
-        assertEq(usdat.balanceOf(alice), 0);
-    }
-
-    function test_unwrap_whitelistEnabled_accountNotWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: wrap first (whitelist disabled)
-        mToken.setBalanceOf(address(swapFacility), amount);
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, amount);
-
-        // Enable whitelist (alice not whitelisted)
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        // Give usdat some M for unwrapping
-        mToken.setBalanceOf(address(usdat), amount);
-
-        // Transfer tokens to swap facility for unwrap
-        vm.prank(alice);
-        usdat.transfer(address(swapFacility), amount);
-
-        // Set msgSender to alice (not whitelisted)
-        swapFacility.setMsgSender(alice);
-
-        // Unwrap should fail
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
-
-        vm.prank(address(swapFacility));
-        usdat.unwrap(alice, amount);
-    }
-
-    /* ============ Forced Transfer Tests ============ */
-
-    function test_forceTransfer_onlyForcedTransferManager() external {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, FORCED_TRANSFER_MANAGER_ROLE
-            )
-        );
-
-        vm.prank(alice);
-        usdat.forceTransfer(bob, carol, 100);
-    }
-
-    function test_forceTransfer_accountNotFrozen() external {
-        // Give bob some tokens first
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, 1000e6);
-
-        // Try to force transfer from non-frozen account
-        vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountNotFrozen.selector, bob));
-
-        vm.prank(compliance);
-        usdat.forceTransfer(bob, carol, 100e6);
-    }
-
-    function test_forceTransfer_invalidRecipient() external {
-        // Give bob some tokens and freeze him
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, 1000e6);
-
-        vm.prank(compliance);
-        usdat.freeze(bob);
-
-        // Try to force transfer to zero address
-        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("InvalidRecipient(address)")), address(0)));
-
-        vm.prank(compliance);
-        usdat.forceTransfer(bob, address(0), 100e6);
-    }
-
-    function test_forceTransfer_insufficientBalance() external {
-        // Give bob some tokens and freeze him
-        mToken.setBalanceOf(address(swapFacility), 100e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, 100e6);
-
-        vm.prank(compliance);
-        usdat.freeze(bob);
-
-        // Try to force transfer more than balance
-        vm.expectRevert(abi.encodeWithSelector(IMExtension.InsufficientBalance.selector, bob, 100e6, 200e6));
-
-        vm.prank(compliance);
-        usdat.forceTransfer(bob, carol, 200e6);
-    }
-
-    function test_forceTransfer_success() external {
-        uint256 amount = 1000e6;
-        uint256 transferAmount = 400e6;
-
-        // Give bob some tokens
-        mToken.setBalanceOf(address(swapFacility), amount);
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, amount);
-
-        // Freeze bob
-        vm.prank(compliance);
-        usdat.freeze(bob);
-
-        // Force transfer
-        vm.expectEmit(true, true, true, true);
-        emit IForcedTransferable.ForcedTransfer(bob, carol, compliance, transferAmount);
-
-        vm.prank(compliance);
-        usdat.forceTransfer(bob, carol, transferAmount);
-
-        assertEq(usdat.balanceOf(bob), amount - transferAmount);
-        assertEq(usdat.balanceOf(carol), transferAmount);
-    }
+    /* ============ Forced Transfer Extended Tests ============ */
 
     function test_forceTransfer_zeroAmount() external {
-        // Give bob some tokens
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, 1000e6);
+        _wrap(alice, alice, AMOUNT);
 
-        // Freeze bob
         vm.prank(compliance);
-        usdat.freeze(bob);
+        usdat.freeze(alice);
 
-        uint256 bobBalanceBefore = usdat.balanceOf(bob);
-        uint256 carolBalanceBefore = usdat.balanceOf(carol);
+        uint256 aliceBefore = usdat.balanceOf(alice);
+        uint256 bobBefore = usdat.balanceOf(bob);
 
         // Force transfer zero amount - should succeed but be no-op
         vm.prank(compliance);
-        usdat.forceTransfer(bob, carol, 0);
+        usdat.forceTransfer(alice, bob, 0);
 
-        assertEq(usdat.balanceOf(bob), bobBalanceBefore);
-        assertEq(usdat.balanceOf(carol), carolBalanceBefore);
+        assertEq(usdat.balanceOf(alice), aliceBefore);
+        assertEq(usdat.balanceOf(bob), bobBefore);
     }
 
     function test_forceTransfers_batch() external {
-        // Setup: give bob and carol tokens
-        mToken.setBalanceOf(address(swapFacility), 2000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(bob, 1000e6);
+        _wrap(alice, alice, AMOUNT);
+        _wrap(bob, bob, AMOUNT);
 
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(carol, 1000e6);
+        vm.prank(compliance);
+        usdat.freeze(alice);
 
-        // Freeze both
         vm.prank(compliance);
         usdat.freeze(bob);
-
-        vm.prank(compliance);
-        usdat.freeze(carol);
 
         // Setup batch arrays
         address[] memory froms = new address[](2);
         address[] memory tos = new address[](2);
         uint256[] memory amounts = new uint256[](2);
 
-        froms[0] = bob;
-        froms[1] = carol;
-        tos[0] = alice;
-        tos[1] = alice;
-        amounts[0] = 500e6;
+        froms[0] = alice;
+        froms[1] = bob;
+        tos[0] = treasury;
+        tos[1] = treasury;
+        amounts[0] = 400e6;
         amounts[1] = 300e6;
 
-        // Batch force transfer
         vm.prank(compliance);
         usdat.forceTransfers(froms, tos, amounts);
 
-        assertEq(usdat.balanceOf(bob), 500e6);
-        assertEq(usdat.balanceOf(carol), 700e6);
-        assertEq(usdat.balanceOf(alice), 800e6);
+        assertEq(usdat.balanceOf(alice), AMOUNT - 400e6);
+        assertEq(usdat.balanceOf(bob), AMOUNT - 300e6);
+        assertEq(usdat.balanceOf(treasury), 700e6);
     }
 
     function test_forceTransfers_arrayLengthMismatch() external {
@@ -562,16 +784,40 @@ contract USDatTest is Test {
         address[] memory tos = new address[](1);
         uint256[] memory amounts = new uint256[](2);
 
-        froms[0] = bob;
-        froms[1] = carol;
-        tos[0] = alice;
+        froms[0] = alice;
+        froms[1] = bob;
+        tos[0] = treasury;
         amounts[0] = 100e6;
         amounts[1] = 200e6;
 
-        vm.expectRevert(IForcedTransferable.ArrayLengthMismatch.selector);
+        vm.expectRevert(IArrayErrors.ArrayLengthMismatch.selector);
 
         vm.prank(compliance);
         usdat.forceTransfers(froms, tos, amounts);
+    }
+
+    function test_forceTransfer_revertsOnZeroRecipient() external {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.prank(compliance);
+        usdat.freeze(alice);
+
+        vm.expectRevert(IExtension.ZeroAccount.selector);
+
+        vm.prank(compliance);
+        usdat.forceTransfer(alice, address(0), AMOUNT);
+    }
+
+    function test_forceTransfer_revertsOnInsufficientBalance() external {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.prank(compliance);
+        usdat.freeze(alice);
+
+        vm.expectRevert(abi.encodeWithSelector(IExtension.InsufficientBalance.selector, alice, AMOUNT, AMOUNT + 1));
+
+        vm.prank(compliance);
+        usdat.forceTransfer(alice, bob, AMOUNT + 1);
     }
 
     /* ============ Freeze Tests ============ */
@@ -605,26 +851,23 @@ contract USDatTest is Test {
         assertFalse(usdat.isFrozen(alice));
     }
 
-    function test_transfer_frozenAccount() external {
-        // Give alice tokens
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, 1000e6);
+    function test_transfer_revertsWhenSenderFrozen() external {
+        _wrap(alice, alice, AMOUNT);
 
-        // Freeze alice
         vm.prank(compliance);
         usdat.freeze(alice);
 
-        // Try to transfer
         vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountFrozen.selector, alice));
 
         vm.prank(alice);
-        usdat.transfer(bob, 100e6);
+        usdat.transfer(bob, AMOUNT);
     }
 
     /* ============ Pause Tests ============ */
 
     function test_pause() external {
+        assertFalse(usdat.paused());
+
         vm.prank(compliance);
         usdat.pause();
 
@@ -635,156 +878,48 @@ contract USDatTest is Test {
         vm.prank(compliance);
         usdat.pause();
 
+        assertTrue(usdat.paused());
+
         vm.prank(compliance);
         usdat.unpause();
 
         assertFalse(usdat.paused());
     }
 
-    function test_wrap_whenPaused() external {
-        vm.prank(compliance);
+    function test_pause_onlyPauser() external {
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, PAUSER_ROLE)
+        );
+
+        vm.prank(alice);
         usdat.pause();
-
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-
-        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, 1000e6);
     }
 
-    function test_transfer_whenPaused() external {
-        // Give alice tokens
-        mToken.setBalanceOf(address(swapFacility), 1000e6);
-        vm.prank(address(swapFacility));
-        usdat.wrap(alice, 1000e6);
-
-        // Pause
+    function test_wrap_revertsWhenPaused() external {
         vm.prank(compliance);
         usdat.pause();
 
-        // Try to transfer
+        _mintPyusdx(alice, AMOUNT);
+
+        vm.startPrank(alice);
+        pyusdx.approve(address(swapFacility), AMOUNT);
+
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        swapFacility.swapIn(address(usdat), AMOUNT, alice);
+
+        vm.stopPrank();
+    }
+
+    function test_transfer_revertsWhenPaused() external {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.prank(compliance);
+        usdat.pause();
+
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
 
         vm.prank(alice);
-        usdat.transfer(bob, 100e6);
-    }
-
-    /* ============ JMI Wrap (via SwapFacility) Whitelist Tests ============ */
-
-    function test_wrapJMI_whitelistDisabled() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
-        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
-        vm.prank(processor);
-        usdat.setAssetCap(address(usdc), type(uint256).max);
-
-        // Give USDC to swap facility
-        usdc.mint(address(swapFacility), amount);
-
-        // Approve USDat to spend USDC from swap facility
-        vm.prank(address(swapFacility));
-        usdc.approve(address(usdat), amount);
-
-        // JMI wrap should succeed without whitelist
-        vm.prank(address(swapFacility));
-        usdat.wrap(address(usdc), alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrapJMI_whitelistEnabled_accountWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
-        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
-        vm.prank(processor);
-        usdat.setAssetCap(address(usdc), type(uint256).max);
-
-        // Enable whitelist and whitelist alice
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        vm.prank(compliance);
-        usdat.whitelist(alice);
-
-        // Give USDC to swap facility
-        usdc.mint(address(swapFacility), amount);
-
-        // Approve USDat to spend USDC from swap facility
-        vm.prank(address(swapFacility));
-        usdc.approve(address(usdat), amount);
-
-        // Set msgSender to alice (the depositor)
-        swapFacility.setMsgSender(alice);
-
-        // JMI wrap should succeed
-        vm.prank(address(swapFacility));
-        usdat.wrap(address(usdc), alice, amount);
-
-        assertEq(usdat.balanceOf(alice), amount);
-    }
-
-    function test_wrapJMI_whitelistEnabled_accountNotWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
-        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
-        vm.prank(processor);
-        usdat.setAssetCap(address(usdc), type(uint256).max);
-
-        // Enable whitelist but don't whitelist alice
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        // Give USDC to swap facility
-        usdc.mint(address(swapFacility), amount);
-
-        // Approve USDat to spend USDC from swap facility
-        vm.prank(address(swapFacility));
-        usdc.approve(address(usdat), amount);
-
-        // Set msgSender to alice (the depositor, not whitelisted)
-        swapFacility.setMsgSender(alice);
-
-        // JMI wrap should fail - alice (depositor) is not whitelisted
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(address(usdc), alice, amount);
-    }
-
-    function test_wrapJMI_whitelistEnabled_recipientNotWhitelisted() external {
-        uint256 amount = 1_000e6;
-
-        // Setup: Set USDC asset cap so it's allowed (processor has ASSET_CAP_MANAGER_ROLE)
-        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
-        vm.prank(processor);
-        usdat.setAssetCap(address(usdc), type(uint256).max);
-
-        // Enable whitelist and whitelist alice but not bob
-        vm.prank(compliance);
-        usdat.enableWhitelist();
-
-        vm.prank(compliance);
-        usdat.whitelist(alice);
-
-        // Give USDC to swap facility
-        usdc.mint(address(swapFacility), amount);
-
-        // Approve USDat to spend USDC from swap facility
-        vm.prank(address(swapFacility));
-        usdc.approve(address(usdat), amount);
-
-        // Set msgSender to alice (whitelisted)
-        swapFacility.setMsgSender(alice);
-
-        // JMI wrap should fail - bob (recipient) is not whitelisted
-        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, bob));
-
-        vm.prank(address(swapFacility));
-        usdat.wrap(address(usdc), bob, amount);
+        usdat.transfer(bob, AMOUNT);
     }
 
     /* ============ Fuzz Tests ============ */
@@ -796,10 +931,114 @@ contract USDatTest is Test {
 
         vm.prank(compliance);
         usdat.whitelist(account);
+
         assertTrue(usdat.isWhitelisted(account));
 
         vm.prank(compliance);
         usdat.removeFromWhitelist(account);
+
         assertFalse(usdat.isWhitelisted(account));
+    }
+
+    /* ============ Wrap with Whitelist Tests ============ */
+
+    function test_wrap_whitelistDisabled_succeeds() external {
+        assertFalse(usdat.isWhitelistEnabled());
+
+        _wrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), AMOUNT);
+    }
+
+    function test_wrap_whitelistEnabled_accountWhitelisted_succeeds() external {
+        vm.startPrank(compliance);
+
+        usdat.enableWhitelist();
+        usdat.whitelist(alice);
+
+        vm.stopPrank();
+
+        _wrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), AMOUNT);
+    }
+
+    function test_wrap_whitelistEnabled_accountNotWhitelisted_reverts() external {
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        _mintPyusdx(alice, AMOUNT);
+
+        vm.startPrank(alice);
+        pyusdx.approve(address(swapFacility), AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
+        swapFacility.swapIn(address(usdat), AMOUNT, alice);
+
+        vm.stopPrank();
+    }
+
+    function test_wrap_whitelistEnabled_recipientNotWhitelisted_reverts() external {
+        vm.startPrank(compliance);
+
+        usdat.enableWhitelist();
+        usdat.whitelist(alice);
+
+        vm.stopPrank();
+
+        _mintPyusdx(alice, AMOUNT);
+
+        vm.startPrank(alice);
+
+        pyusdx.approve(address(swapFacility), AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, bob));
+        swapFacility.swapIn(address(usdat), AMOUNT, bob);
+
+        vm.stopPrank();
+    }
+
+    /* ============ Unwrap with Whitelist Tests ============ */
+
+    function test_unwrap_whitelistDisabled_succeeds() external {
+        assertFalse(usdat.isWhitelistEnabled());
+
+        _wrap(alice, alice, AMOUNT);
+        _unwrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), 0);
+        assertEq(pyusdx.balanceOf(alice), AMOUNT);
+    }
+
+    function test_unwrap_whitelistEnabled_accountWhitelisted_succeeds() external {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.startPrank(compliance);
+
+        usdat.enableWhitelist();
+        usdat.whitelist(alice);
+
+        vm.stopPrank();
+
+        _unwrap(alice, alice, AMOUNT);
+
+        assertEq(usdat.balanceOf(alice), 0);
+        assertEq(pyusdx.balanceOf(alice), AMOUNT);
+    }
+
+    function test_unwrap_whitelistEnabled_accountNotWhitelisted_reverts() external {
+        _wrap(alice, alice, AMOUNT);
+
+        vm.prank(compliance);
+        usdat.enableWhitelist();
+
+        vm.startPrank(alice);
+
+        usdat.approve(address(swapFacility), AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IUSDat.AccountNotWhitelisted.selector, alice));
+        swapFacility.swapOut(address(usdat), AMOUNT, alice);
+
+        vm.stopPrank();
     }
 }
