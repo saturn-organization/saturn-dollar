@@ -58,15 +58,17 @@ src/
   USDat.sol                         production implementation
   interfaces/                      USDat-specific interfaces
 script/
-  UpgradeUSDatBase.sol             shared addresses and calldata builders
-  DeployUSDatImplementation.s.sol  implementation deployment
-  ProposeUSDatUpgrade.s.sol        timelock scheduling
-  ExecuteUSDatUpgrade.s.sol        timelock execution
-  ProposeReplaceAssetWhitelist.s.sol
-  ExecuteReplaceAssetWhitelist.s.sol
-  ProposeZeroMAssetCap.s.sol
-  ExecuteZeroMAssetCap.s.sol
-  VerifyCodeHash.s.sol              local runtime-code-hash helper
+  PYUSDx_Deployment_Scripts/
+    UpgradeUSDatBase.sol             shared addresses and calldata builders
+    DeployUSDatImplementation.s.sol  implementation deployment
+    ProposeUSDatUpgrade.s.sol        timelock scheduling
+    ExecuteUSDatUpgrade.s.sol        timelock execution
+    ProposeReplaceAssetWhitelist.s.sol
+    ExecuteReplaceAssetWhitelist.s.sol
+    VerifyCodeHash.s.sol              local runtime-code-hash helper
+  PYUSDx_Cleanup_Scripts/
+    ProposeZeroMAssetCap.s.sol
+    ExecuteZeroMAssetCap.s.sol
 test/
   USDat.t.sol                       local unit tests
   USDatHarness.sol                 test-only initializer and mock M token
@@ -134,14 +136,17 @@ make deploy-upgrade-impl       # future implementation deployments
 make propose-upgrade-calldata # print schedule calldata for Fireblocks
 make propose-upgrade          # submit schedule through Fireblocks
 make execute-upgrade          # execute after the timelock delay
+make propose-zero-m-asset-cap-calldata # print the asset-removal schedule calldata
+make propose-zero-m-asset-cap          # schedule asset removal through Fireblocks
+make execute-zero-m-asset-cap          # execute the matured operation with DEPLOYER_KEY
 ```
 
 For a new implementation, deploy first and update `UpgradeUSDatBase.NEW_IMPLEMENTATION` before proposing. The propose and execute scripts rebuild the same `ProxyAdmin.upgradeAndCall(proxy, implementation, migrate())` payload, so a mismatched implementation produces a different timelock operation ID and cannot execute the scheduled operation.
 
-`script/VerifyCodeHash.s.sol` can deploy the implementation locally with the production constructor arguments and print its runtime code hash:
+`script/PYUSDx_Deployment_Scripts/VerifyCodeHash.s.sol` can deploy the implementation locally with the production constructor arguments and print its runtime code hash:
 
 ```bash
-forge script script/VerifyCodeHash.s.sol:VerifyCodeHash
+forge script script/PYUSDx_Deployment_Scripts/VerifyCodeHash.s.sol:VerifyCodeHash
 ```
 
 ## Security

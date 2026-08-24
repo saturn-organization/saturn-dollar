@@ -3,7 +3,7 @@ pragma solidity 0.8.34;
 
 import {Script, console2} from "forge-std/Script.sol";
 
-import {USDat} from "../src/USDat.sol";
+import {USDat} from "../../src/USDat.sol";
 import {UpgradeUSDatBase} from "./UpgradeUSDatBase.sol";
 
 /// @notice Deploys USDat in a local EVM with the production constructor

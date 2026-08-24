@@ -5,8 +5,11 @@ import {Script, console} from "forge-std/Script.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {TimelockController} from "openzeppelin-contracts/contracts/governance/TimelockController.sol";
 
-import {USDat} from "../src/USDat.sol";
-import {UpgradeUSDatBase} from "./UpgradeUSDatBase.sol";
+import {USDat} from "../../src/USDat.sol";
+
+interface ISetAssetCapForCleanupExecution {
+    function setAssetCap(address asset, uint256 cap) external;
+}
 
 /**
  * @notice Step 2 of the M→PYUSDX migration finalizer: execute the scheduled `setAssetCap(M_TOKEN, 0)`
@@ -18,12 +21,21 @@ import {UpgradeUSDatBase} from "./UpgradeUSDatBase.sol";
  *         broadcasting if any M backing remains (assetBalanceOf(M) != 0), and warns to sweep unclaimed M
  *         yield via `claimMYield` first.
  */
-contract ExecuteZeroMAssetCap is Script, UpgradeUSDatBase {
-    function run() public {
-        TimelockController timelock = TimelockController(payable(ASSET_CAP_TIMELOCK));
+contract ExecuteZeroMAssetCap is Script {
+    address constant USDAT_PROXY = 0x23238f20b894f29041f48D88eE91131C395Aaa71;
+    address constant M_TOKEN = 0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b;
 
-        bytes memory payload = _buildZeroMAssetCapData();
-        bytes32 id = timelock.hashOperation(USDAT_PROXY, 0, payload, PREDECESSOR, SALT);
+    address constant ASSET_CAP_MANAGER_TIMELOCK = 0x7D343D17896D2cd87A49b4fB8872298A883f78f7;
+
+    /// @dev Must match the proposal: this operation has no dependency on another timelock operation.
+    bytes32 constant NO_PREDECESSOR = bytes32(0);
+    bytes32 constant SALT = bytes32(0);
+
+    function run() public {
+        TimelockController timelock = TimelockController(payable(ASSET_CAP_MANAGER_TIMELOCK));
+
+        bytes memory payload = abi.encodeCall(ISetAssetCapForCleanupExecution.setAssetCap, (M_TOKEN, 0));
+        bytes32 id = timelock.hashOperation(USDAT_PROXY, 0, payload, NO_PREDECESSOR, SALT);
 
         console.log("Operation id:");
         console.logBytes32(id);
@@ -49,7 +61,7 @@ contract ExecuteZeroMAssetCap is Script, UpgradeUSDatBase {
 
         vm.startBroadcast();
 
-        timelock.execute(USDAT_PROXY, 0, payload, PREDECESSOR, SALT);
+        timelock.execute(USDAT_PROXY, 0, payload, NO_PREDECESSOR, SALT);
 
         vm.stopBroadcast();
 
