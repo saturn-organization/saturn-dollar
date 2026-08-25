@@ -9,7 +9,7 @@ The held M will be drained into PYUSDX progressively via `replaceAsset`, which c
 But once M is registered as a replaceable alt-asset, `MultiMint` accounting only sees the snapshot in `$.assets[mToken].balance` — M yield accrues invisibly on the contract's actual `balanceOf` and is not claimable by anything: `claimYield()` only realizes PYUSDX excess, and `replaceAsset` only moves the tracked balance. Hence we also need a function, callable any time post-migration, that realizes the surplus (`actual M balance − tracked balance`) to the yield recipient — exactly like the surplus block already in `migrate` (`src/USDat.sol:80-96`).
 
 **Decisions (confirmed with user):**
-- **M-only `claimMYield()`** — no generic multi-asset support (avoids decimal-conversion complexity; M shares the extension's 6 decimals so surplus maps 1:1). To make it *truly* M-only, the M address is a **hardcoded constant** in USDat (`address public constant M_TOKEN = 0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b`, same value as `script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol:25`). USDat is upgrade-only and mainnet-only, so hardcoding is safe; constructor and deploy script constructor-data stay untouched. No function takes an asset address anymore. Bonus: the public getter restores an `mToken` view like the legacy JMIExtension ABI exposed.
+- **M-only `claimMYield()`** — no generic multi-asset support (avoids decimal-conversion complexity; M shares the extension's 6 decimals so surplus maps 1:1). To make it *truly* M-only, the M address is a **hardcoded constant** in USDat (`address public constant M_TOKEN = 0x866A2BF4E572CbcF37D5071A7a58503Bfb36be1b`, same value as `script/PYUSDx_Deployment/UpgradeUSDatBase.sol:25`). USDat is upgrade-only and mainnet-only, so hardcoding is safe; constructor and deploy script constructor-data stay untouched. No function takes an asset address anymore. Bonus: the public getter restores an `mToken` view like the legacy JMIExtension ABI exposed.
 - **Permissionless** — anyone can call; it always mints to `yieldRecipient()`. Unlike `claimYield()`, no `YIELD_RECIPIENT_MANAGER_ROLE` gate. Keep the frozen-yield-recipient revert (same incident-response rationale as `_beforeClaimYield`, `lib/PYUSDX/src/platform/projects/YieldToOne.sol:186`).
 
 ## Changes
@@ -74,15 +74,15 @@ Design points (all reuse existing code — no new machinery beyond the constant)
 ### 3. `src/interfaces/IMTokenLike.sol`
 - Remove `stopEarning()` (no longer used anywhere in `src/`). Keep `isEarning` — the fork test uses it.
 
-### 4. `script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol`
+### 4. `script/PYUSDx_Deployment/UpgradeUSDatBase.sol`
 - `_buildUpgradeAndCallData`: `abi.encodeCall(USDat.migrate, ())` (line 56).
 - Optionally replace the local `M_TOKEN` constant with a reference to `USDat`'s (single source of truth); constructor data unchanged.
 
 ### 5. Tests (TDD — write each failing test before the code change it drives)
 
-**`test/USDatHarness.sol`:** remove `MockMToken.stopEarning()` and its comment (compile-level proof migrate no longer calls it).
+**`test/PYUSDx_Deployment/USDatHarness.sol`:** remove `MockMToken.stopEarning()` and its comment (compile-level proof migrate no longer calls it).
 
-**`test/USDat.t.sol`:** since `M_TOKEN` is a hardcoded address, place the mock there in `setUp` with forge-std's `deployCodeTo` (runs the constructor at the target address, so name/symbol/decimals storage is set correctly):
+**`test/PYUSDx_Deployment/USDat.t.sol`:** since `M_TOKEN` is a hardcoded address, place the mock there in `setUp` with forge-std's `deployCodeTo` (runs the constructor at the target address, so name/symbol/decimals storage is set correctly):
 ```solidity
 deployCodeTo("USDatHarness.sol:MockMToken", usdat.M_TOKEN());
 mToken = MockMToken(usdat.M_TOKEN());
@@ -95,7 +95,7 @@ mToken = MockMToken(usdat.M_TOKEN());
 - `test_mYield_viewMatchesClaim` — view equals surplus before claim, 0 after.
 - Existing migrate tests: same behavior, call sites become `usdat.migrate()`.
 
-**`test/UpgradeUSDatFork.t.sol`:**
+**`test/PYUSDx_Deployment/UpgradeUSDatFork.t.sol`:**
 - `test_upgradeAndMigrate_timelock`: flip `assertFalse(IMTokenLike(M_TOKEN).isEarning(USDAT_PROXY))` (line 156) to `assertTrue`, update the comments at lines 97 and 155; `migrate()` revert-check call site loses its arg; assert `usdat.M_TOKEN() == M_TOKEN` (constant matches the live M).
 - New `test_claimMYield_realizesMYieldAccruedAfterUpgrade`: run `_doTimelockUpgrade()`, warp forward (M index keeps growing), compute `surplus = M.balanceOf(proxy) − assetBalanceOf(M_TOKEN)`, `assertGt(surplus, 0)` (proves earning continued), call `usdat.claimMYield()` from an unprivileged address, assert recipient mint + `assetBalanceOf(M_TOKEN)` now equals the actual M balance + `totalAssets` bump + cap unchanged.
 

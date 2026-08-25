@@ -19,12 +19,12 @@ import {IExtension} from "@pyusdx/platform/interfaces/IExtension.sol";
 import {IArrayErrors} from "@m-extensions/interfaces/IArrayErrors.sol";
 import {IFreezable} from "@m-extensions/components/freezable/IFreezable.sol";
 
-import {PYUSDXHarness} from "../lib/PYUSDX/test/harness/PYUSDXHarness.sol";
-import {MockIssuerGateway} from "../lib/PYUSDX/test/mock/MockIssuerGateway.sol";
-import {MockSwapFacility} from "../lib/PYUSDX/test/mock/MockSwapFacility.sol";
+import {PYUSDXHarness} from "../../lib/PYUSDX/test/harness/PYUSDXHarness.sol";
+import {MockIssuerGateway} from "../../lib/PYUSDX/test/mock/MockIssuerGateway.sol";
+import {MockSwapFacility} from "../../lib/PYUSDX/test/mock/MockSwapFacility.sol";
 
-import {USDat} from "../src/USDat.sol";
-import {IUSDat} from "../src/interfaces/IUSDat.sol";
+import {USDat} from "../../src/USDat.sol";
+import {IUSDat} from "../../src/interfaces/IUSDat.sol";
 import {USDatHarness, MockMToken} from "./USDatHarness.sol";
 
 contract USDatTest is Test {
