@@ -24,7 +24,7 @@ The real flow requires:
 
 ## File changes
 
-### 1. Rewrite `script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol`
+### 1. Rewrite `script/PYUSDx_Deployment/UpgradeUSDatBase.sol`
 
 Keep the address constants (`USDAT_PROXY`, `M_TOKEN`, `PYUSDX`, `PYUSDX_SWAP_FACILITY`) and the `IJMIExtensionLegacy` interface (still needed by the fork test for pre-upgrade state checks).
 
@@ -68,7 +68,7 @@ Note the `IProxyAdmin` path has **no `src/` segment**: `forge remappings` maps `
 
 `prepareUpgrade` works without a reference contract here: with `unsafeSkipStorageCheck = true` the validate command drops `--requireReference` (verified in `Core.buildValidateCommand`). This matters because the old flow relied on `upgradeProxy` inferring the reference from the live proxy.
 
-### 2. New `script/PYUSDx_Deployment_Scripts/ProposeUSDatUpgrade.s.sol` (merged deploy + schedule)
+### 2. New `script/PYUSDx_Deployment/ProposeUSDatUpgrade.s.sol` (merged deploy + schedule)
 
 Deploys the implementation AND schedules the timelock operation in a single `forge script` run, signed by the proposer EOA (via `--private-key`; no env-var key derivation - one source of truth). Uses `TimelockController.schedule` (single op, not batch):
 ```solidity
@@ -118,7 +118,7 @@ Run with `--broadcast --verify` so the implementation is deployed, verified, and
 
 **Operation id logging:** `hashOperation(...)` is what you track on-chain (`getTimestamp`, `isOperationReady`) and what the CANCELLER needs to abort.
 
-### 3. New `script/PYUSDx_Deployment_Scripts/ExecuteUSDatUpgrade.s.sol`
+### 3. New `script/PYUSDx_Deployment/ExecuteUSDatUpgrade.s.sol`
 
 Takes `NEW_IMPLEMENTATION` as env var. Rebuilds the same calldata and broadcasts `timelock.execute`:
 ```solidity
@@ -145,7 +145,7 @@ A wrong `NEW_IMPLEMENTATION` is self-protecting either way - the rebuilt payload
 
 The broadcast-as-owner path is dead on mainnet (ProxyAdmin is owned by the timelock). `VerifyCodeHash.s.sol` stays - it only uses the constants from the base.
 
-### 5. Rewrite `test/UpgradeUSDatFork.t.sol`
+### 5. Rewrite `test/PYUSDx_Deployment/UpgradeUSDatFork.t.sol`
 
 Fork at block **25,284,032** (post ownership-transfer to the timelock). Model the real multi-step flow:
 ```
@@ -191,13 +191,13 @@ Keep the old target's `--skip test --slow --non-interactive` flags: `--skip test
 propose-upgrade: RPC_URL=$(MAINNET_RPC_URL)
 propose-upgrade: PRIVATE_KEY=$(PROPOSER_PRIVATE_KEY)
 propose-upgrade:
-	forge script script/PYUSDx_Deployment_Scripts/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
+	forge script script/PYUSDx_Deployment/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
 	  --rpc-url $(RPC_URL) --private-key $(PRIVATE_KEY) \
 	  --skip test --slow --non-interactive --broadcast --verify
 
 execute-upgrade: RPC_URL=$(MAINNET_RPC_URL)
 execute-upgrade:
-	forge script script/PYUSDx_Deployment_Scripts/ExecuteUSDatUpgrade.s.sol:ExecuteUSDatUpgrade \
+	forge script script/PYUSDx_Deployment/ExecuteUSDatUpgrade.s.sol:ExecuteUSDatUpgrade \
 	  --rpc-url $(RPC_URL) --private-key $(PRIVATE_KEY) \
 	  --skip test --slow --non-interactive --broadcast
 ```

@@ -83,7 +83,7 @@ passes a non-zero only because `__YieldToOne_init` requires it (inert). `isPinne
 remain as harmless cosmetic views (no override needed).
 
 > Testing: production USDat exposes only `migrate`, so a fresh test proxy has no base state. Unit tests use a
-> test-only `test/USDatHarness.sol` that adds an `initialize` to stand up a working instance. The real
+> test-only `test/PYUSDx_Deployment/USDatHarness.sol` that adds an `initialize` to stand up a working instance. The real
 > JMI→`migrate` upgrade path is exercised by the mainnet-fork test (§8). The old JMI USDat can't be deployed
 > in tests directly (pinned `0.8.26`, won't compile under 0.8.34).
 
@@ -260,9 +260,9 @@ assumption — if this reverts, a governance de-listing step is needed pre-upgra
   present; add `error VersionPinningDisabled()` and `error MReservesMismatch(uint256 held, uint256 backing)`.
 - **PYUSDX upstream** — add `virtual` to `Extension.pinVersion` / `Extension.unpinVersion` (2nd one-liner
   pair alongside the storage-accessor change on branch `proto-962`).
-- `test/USDatHarness.sol` (**new, test-only**) — extends USDat, adds an `initialize` (initializer) replicating
+- `test/PYUSDx_Deployment/USDatHarness.sol` (**new, test-only**) — extends USDat, adds an `initialize` (initializer) replicating
   the base setup so unit tests can stand up an instance.
-- `test/USDat.t.sol` — deploy via `USDatHarness`; replace the two `migrate` tests per §8; add `replaceAsset`/
+- `test/PYUSDx_Deployment/USDat.t.sol` — deploy via `USDatHarness`; replace the two `migrate` tests per §8; add `replaceAsset`/
   drain tests.
 - `script/USDat.s.sol` (fresh-deploy script) — **obsolete** (no fresh deploys); remove or archive.
 - `script/UpgradeUSDat.s.sol` — build the §7 atomic batch: call `claimYield()` on the live proxy (via a tiny

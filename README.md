@@ -58,7 +58,7 @@ src/
   USDat.sol                         production implementation
   interfaces/                      USDat-specific interfaces
 script/
-  PYUSDx_Deployment_Scripts/
+  PYUSDx_Deployment/
     UpgradeUSDatBase.sol             shared addresses and calldata builders
     DeployUSDatImplementation.s.sol  implementation deployment
     ProposeUSDatUpgrade.s.sol        timelock scheduling
@@ -66,13 +66,19 @@ script/
     ProposeReplaceAssetWhitelist.s.sol
     ExecuteReplaceAssetWhitelist.s.sol
     VerifyCodeHash.s.sol              local runtime-code-hash helper
-  PYUSDx_Cleanup_Scripts/
+  PYUSDx_Cleanup/
     ProposeZeroMAssetCap.s.sol
     ExecuteZeroMAssetCap.s.sol
+  Sentora_Cleanup/
+    ProposeForcedTransferRoleToTimelock.s.sol
+    ExecuteForcedTransferRoleToTimelock.s.sol
 test/
-  USDat.t.sol                       local unit tests
-  USDatHarness.sol                 test-only initializer and mock M token
-  UpgradeUSDatFork.t.sol           mainnet-fork migration tests
+  PYUSDx_Deployment/
+    USDat.t.sol                       local unit tests
+    USDatHarness.sol                 test-only initializer and mock M token
+    UpgradeUSDatFork.t.sol           mainnet-fork migration tests
+  Sentora_Cleanup/
+    ForcedTransferRoleToTimelockFork.t.sol
 lib/                                pinned forge-std and PYUSDX submodules
 plans/                              migration design records and runbook
 audits/                             audit reports
@@ -95,7 +101,7 @@ Run the local checks:
 ```bash
 forge fmt --check
 forge build src/USDat.sol --sizes
-forge test --no-match-contract UpgradeUSDatForkTest
+forge test --no-match-contract '.*ForkTest'
 ```
 
 The build command is scoped to the production contract so the EIP-170 size check does not include `USDatHarness`, whose test-only initializer and mint helper make it intentionally non-deployable. Running `forge build --sizes` without a path checks every test and script contract as well and therefore reports the harness as oversized.
@@ -105,6 +111,9 @@ The mainnet-fork suite requires an RPC endpoint:
 ```bash
 MAINNET_RPC_URL=<rpc-url> \
   forge test --match-contract UpgradeUSDatForkTest -vvv
+
+MAINNET_RPC_URL=<rpc-url> \
+  forge test --match-contract ForcedTransferRoleToTimelockForkTest -vvv
 ```
 
 Build settings are defined in `foundry.toml`: Solidity `0.8.34`, Cancun EVM, optimizer enabled with 200 runs, and `via_ir = true`.
@@ -139,21 +148,24 @@ make execute-upgrade          # execute after the timelock delay
 make propose-zero-m-asset-cap-calldata # print the asset-removal schedule calldata
 make propose-zero-m-asset-cap          # schedule asset removal through Fireblocks
 make execute-zero-m-asset-cap          # execute the matured operation with DEPLOYER_KEY
+make propose-forced-transfer-role-calldata # print the role-transfer batch calldata
+make propose-forced-transfer-role          # schedule the role transfer through Fireblocks
+make execute-forced-transfer-role          # execute the matured batch with DEPLOYER_KEY
 ```
 
 For a new implementation, deploy first and update `UpgradeUSDatBase.NEW_IMPLEMENTATION` before proposing. The propose and execute scripts rebuild the same `ProxyAdmin.upgradeAndCall(proxy, implementation, migrate())` payload, so a mismatched implementation produces a different timelock operation ID and cannot execute the scheduled operation.
 
-`script/PYUSDx_Deployment_Scripts/VerifyCodeHash.s.sol` can deploy the implementation locally with the production constructor arguments and print its runtime code hash:
+`script/PYUSDx_Deployment/VerifyCodeHash.s.sol` can deploy the implementation locally with the production constructor arguments and print its runtime code hash:
 
 ```bash
-forge script script/PYUSDx_Deployment_Scripts/VerifyCodeHash.s.sol:VerifyCodeHash
+forge script script/PYUSDx_Deployment/VerifyCodeHash.s.sol:VerifyCodeHash
 ```
 
 ## Security
 
 - [THREAT_MODEL.md](THREAT_MODEL.md) documents the current migration and accounting attack surface.
 - `audits/` contains the available audit reports.
-- `test/UpgradeUSDatFork.t.sol` verifies the deployed implementation, timelock flow, storage preservation, roles, reserve migration, and post-migration controls against a mainnet fork.
+- `test/PYUSDx_Deployment/UpgradeUSDatFork.t.sol` verifies the deployed implementation, timelock flow, storage preservation, roles, reserve migration, and post-migration controls against a mainnet fork.
 
 ## License
 

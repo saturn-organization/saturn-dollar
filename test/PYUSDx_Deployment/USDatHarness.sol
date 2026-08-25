@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.34;
 
-import {MockERC20} from "../lib/PYUSDX/test/mock/MockERC20.sol";
+import {MockERC20} from "../../lib/PYUSDX/test/mock/MockERC20.sol";
 
-import {USDat} from "../src/USDat.sol";
+import {USDat} from "../../src/USDat.sol";
 
 /// @dev Test-only harness. Production `USDat` is upgrade-only (no `initialize`); this adds an `initializer`
 ///      so unit tests can stand up a working instance, plus a mint helper to fabricate pre-migration supply.

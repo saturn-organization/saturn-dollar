@@ -127,4 +127,4 @@ The whitelist storage lives at the `Saturn.storage.Whitelist` ERC-7201 slot and 
 ## Follow-ups if this is left open
 
 - Record in `usdat-pyusdx-migration-runbook.md` that the whitelist must not be disabled while M's cap is non-zero.
-- The comments in `USDat.claimMYield` ("`cap` is left alone … keeps M wraps blocked") and the `assertFalse(usdat.isAllowedToWrap(...))` assertions in `test/USDat.t.sol` and `test/UpgradeUSDatFork.t.sol` are only valid pre-drain. They read as general guarantees and should be corrected or scoped, since they currently assert the property in exactly the state where it holds.
+- The comments in `USDat.claimMYield` ("`cap` is left alone … keeps M wraps blocked") and the `assertFalse(usdat.isAllowedToWrap(...))` assertions in `test/PYUSDx_Deployment/USDat.t.sol` and `test/PYUSDx_Deployment/UpgradeUSDatFork.t.sol` are only valid pre-drain. They read as general guarantees and should be corrected or scoped, since they currently assert the property in exactly the state where it holds.

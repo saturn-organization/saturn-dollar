@@ -28,7 +28,7 @@ export
 deploy-upgrade-impl: RPC_URL=$(MAINNET_RPC_URL)
 deploy-upgrade-impl:
 	forge clean
-	forge script script/PYUSDx_Deployment_Scripts/DeployUSDatImplementation.s.sol:DeployUSDatImplementation \
+	forge script script/PYUSDx_Deployment/DeployUSDatImplementation.s.sol:DeployUSDatImplementation \
 	--rpc-url $(RPC_URL) \
 	--private-key $(PRIVATE_KEY) \
 	--ffi --skip test --slow --non-interactive --broadcast --verify
@@ -38,7 +38,7 @@ deploy-upgrade-impl:
 # upgrade against UpgradeUSDatBase.NEW_IMPLEMENTATION.
 propose-upgrade-calldata: RPC_URL=$(MAINNET_RPC_URL)
 propose-upgrade-calldata:
-	forge script script/PYUSDx_Deployment_Scripts/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
+	forge script script/PYUSDx_Deployment/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
 	--rpc-url $(RPC_URL) \
 	--sender $(PROPOSER_ADDRESS) \
 	--skip test --slow --non-interactive
@@ -49,7 +49,7 @@ propose-upgrade-calldata:
 propose-upgrade: RPC_URL=$(MAINNET_RPC_URL)
 propose-upgrade:
 	npx @fireblocks/fireblocks-json-rpc --http --rpcUrl $(RPC_URL) -- \
-	forge script script/PYUSDx_Deployment_Scripts/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
+	forge script script/PYUSDx_Deployment/ProposeUSDatUpgrade.s.sol:ProposeUSDatUpgrade \
 	--rpc-url {} \
 	--sender $(PROPOSER_ADDRESS) --unlocked \
 	--skip test --slow --non-interactive --broadcast \
@@ -57,7 +57,7 @@ propose-upgrade:
 
 execute-upgrade: RPC_URL=$(MAINNET_RPC_URL)
 execute-upgrade:
-	forge script script/PYUSDx_Deployment_Scripts/ExecuteUSDatUpgrade.s.sol:ExecuteUSDatUpgrade \
+	forge script script/PYUSDx_Deployment/ExecuteUSDatUpgrade.s.sol:ExecuteUSDatUpgrade \
 	--rpc-url $(RPC_URL) \
 	--private-key $(PRIVATE_KEY) \
 	--skip test --slow --non-interactive --broadcast
@@ -71,7 +71,7 @@ execute-upgrade:
 
 propose-zero-m-asset-cap-calldata: RPC_URL=$(MAINNET_RPC_URL)
 propose-zero-m-asset-cap-calldata:
-	forge script script/PYUSDx_Cleanup_Scripts/ProposeZeroMAssetCap.s.sol:ProposeZeroMAssetCap \
+	forge script script/PYUSDx_Cleanup/ProposeZeroMAssetCap.s.sol:ProposeZeroMAssetCap \
 	--rpc-url $(RPC_URL) \
 	--sender $(ASSET_CAP_PROPOSER_ADDRESS) \
 	--skip test --slow --non-interactive
@@ -79,7 +79,7 @@ propose-zero-m-asset-cap-calldata:
 propose-zero-m-asset-cap: RPC_URL=$(MAINNET_RPC_URL)
 propose-zero-m-asset-cap:
 	npx @fireblocks/fireblocks-json-rpc --http --rpcUrl $(RPC_URL) -- \
-	forge script script/PYUSDx_Cleanup_Scripts/ProposeZeroMAssetCap.s.sol:ProposeZeroMAssetCap \
+	forge script script/PYUSDx_Cleanup/ProposeZeroMAssetCap.s.sol:ProposeZeroMAssetCap \
 	--rpc-url {} \
 	--sender $(ASSET_CAP_PROPOSER_ADDRESS) --unlocked \
 	--skip test --slow --non-interactive --broadcast \
@@ -87,7 +87,35 @@ propose-zero-m-asset-cap:
 
 execute-zero-m-asset-cap: RPC_URL=$(MAINNET_RPC_URL)
 execute-zero-m-asset-cap:
-	forge script script/PYUSDx_Cleanup_Scripts/ExecuteZeroMAssetCap.s.sol:ExecuteZeroMAssetCap \
+	forge script script/PYUSDx_Cleanup/ExecuteZeroMAssetCap.s.sol:ExecuteZeroMAssetCap \
+	--rpc-url $(RPC_URL) \
+	--private-key $(DEPLOYER_KEY) \
+	--skip test --slow --non-interactive --broadcast
+
+# SENTORA ROLE CLEANUP
+#
+# Atomically grant FORCED_TRANSFER_MANAGER_ROLE to the admin timelock and revoke it from the current EOA.
+# Proposal uses the admin-timelock Fireblocks proposer; execution is open and uses DEPLOYER_KEY.
+
+propose-forced-transfer-role-calldata: RPC_URL=$(MAINNET_RPC_URL)
+propose-forced-transfer-role-calldata:
+	forge script script/Sentora_Cleanup/ProposeForcedTransferRoleToTimelock.s.sol:ProposeForcedTransferRoleToTimelock \
+	--rpc-url $(RPC_URL) \
+	--sender $(PROPOSER_ADDRESS) \
+	--skip test --slow --non-interactive
+
+propose-forced-transfer-role: RPC_URL=$(MAINNET_RPC_URL)
+propose-forced-transfer-role:
+	npx @fireblocks/fireblocks-json-rpc --http --rpcUrl $(RPC_URL) -- \
+	forge script script/Sentora_Cleanup/ProposeForcedTransferRoleToTimelock.s.sol:ProposeForcedTransferRoleToTimelock \
+	--rpc-url {} \
+	--sender $(PROPOSER_ADDRESS) --unlocked \
+	--skip test --slow --non-interactive --broadcast \
+	--rpc-timeout 1800 --timeout 600
+
+execute-forced-transfer-role: RPC_URL=$(MAINNET_RPC_URL)
+execute-forced-transfer-role:
+	forge script script/Sentora_Cleanup/ExecuteForcedTransferRoleToTimelock.s.sol:ExecuteForcedTransferRoleToTimelock \
 	--rpc-url $(RPC_URL) \
 	--private-key $(DEPLOYER_KEY) \
 	--skip test --slow --non-interactive --broadcast

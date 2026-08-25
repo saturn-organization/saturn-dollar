@@ -232,7 +232,7 @@ Without this registration, all wrap/unwrap via SwapFacility revert.
 - (No new `ForcedTransferable` file — imported from the vendored `evm-m-extensions`, `^0.8.26`.)
 - `script/UpgradeUSDat.s.sol` — constructor args = (pyusdx, pyusdxSwapFacility); add
   `migrate` calldata; add post-upgrade `registerExtension` step (separate tx / runbook).
-- `script/PYUSDx_Deployment_Scripts/VerifyCodeHash.s.sol` — re-baseline for new compiler.
+- `script/PYUSDx_Deployment/VerifyCodeHash.s.sol` — re-baseline for new compiler.
 - PYUSDX repo PR — make the two storage accessors `virtual` **and** `Extension.pinVersion`/`unpinVersion` `virtual`.
 
 ---
@@ -273,7 +273,7 @@ Three deviations from the plan surfaced while implementing and are now reflected
 is skipped on upgrade) and asserts the pulled PYUSDX covers `totalSupply - totalAssets` via the inherited
 `InsufficientPYUSDXBacking`.
 
-**Status:** `src/USDat.sol` + `src/IUSDat.sol` rewritten; `test/USDat.t.sol` green (16 tests:
+**Status:** `src/USDat.sol` + `src/IUSDat.sol` rewritten; `test/PYUSDx_Deployment/USDat.t.sol` green (16 tests:
 initialize/roles, wrap/unwrap, whitelist gating, forced transfer, `claimYield` permissioning + accrual,
 pin/unpin role-gating, `migrate`). Full project builds under 0.8.34/cancun.
 

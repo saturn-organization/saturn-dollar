@@ -7,9 +7,9 @@ import {TimelockController} from "openzeppelin-contracts/contracts/governance/Ti
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {USDat} from "../src/USDat.sol";
-import {UpgradeUSDatBase, IJMIExtensionLegacy} from "../script/PYUSDx_Deployment_Scripts/UpgradeUSDatBase.sol";
-import {IMTokenLike} from "../src/interfaces/IMTokenLike.sol";
+import {USDat} from "../../src/USDat.sol";
+import {UpgradeUSDatBase, IJMIExtensionLegacy} from "../../script/PYUSDx_Deployment/UpgradeUSDatBase.sol";
+import {IMTokenLike} from "../../src/interfaces/IMTokenLike.sol";
 import {IMultiMint} from "@pyusdx/platform/projects/interfaces/IMultiMint.sol";
 
 /// @dev Minimal surface for asserting who controls the ProxyAdmin at the fork block.
