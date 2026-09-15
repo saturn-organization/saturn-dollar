@@ -8,9 +8,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  FOUNDRY_PROFILE: ci
-
 jobs:
   check:
     name: Foundry project
@@ -29,6 +26,9 @@ jobs:
 
       - name: Run Forge fmt
         run: forge fmt --check
+
+      - name: Run Forge lint
+        run: forge lint src/USDat.sol
 
       - name: Run Forge build
         run: forge build src/USDat.sol --sizes
