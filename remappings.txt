@@ -1,5 +1,6 @@
 @pyusdx/=lib/PYUSDX/src/
 @m-extensions/=lib/PYUSDX/lib/evm-m-extensions/src/
+common/=lib/PYUSDX/lib/evm-m-extensions/lib/common/src/
 @openzeppelin/contracts-upgradeable/=lib/PYUSDX/lib/evm-m-extensions/lib/common/lib/openzeppelin-contracts-upgradeable/contracts/
 @openzeppelin/contracts/=lib/PYUSDX/lib/evm-m-extensions/lib/common/lib/openzeppelin-contracts/contracts/
 openzeppelin-contracts-upgradeable/=lib/PYUSDX/lib/evm-m-extensions/lib/common/lib/openzeppelin-contracts-upgradeable/
