@@ -860,7 +860,7 @@ contract USDatTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IFreezable.AccountFrozen.selector, alice));
 
         vm.prank(alice);
-        usdat.transfer(bob, AMOUNT);
+        usdat.transfer(bob, AMOUNT); // forge-lint: disable-line(erc20-unchecked-transfer)
     }
 
     /* ============ Pause Tests ============ */
@@ -919,7 +919,7 @@ contract USDatTest is Test {
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
 
         vm.prank(alice);
-        usdat.transfer(bob, AMOUNT);
+        usdat.transfer(bob, AMOUNT); // forge-lint: disable-line(erc20-unchecked-transfer)
     }
 
     /* ============ Fuzz Tests ============ */

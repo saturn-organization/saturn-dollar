@@ -17,7 +17,7 @@ contract ExecuteForcedTransferRoleToTimelock is Script {
 
     /// @dev Must match the proposal exactly.
     bytes32 constant NO_PREDECESSOR = bytes32(0);
-    bytes32 constant SALT = keccak256("USDat.FORCED_TRANSFER_MANAGER_ROLE.admin-timelock");
+    bytes32 constant SALT = bytes32(0);
 
     function run() public {
         TimelockController timelock = TimelockController(payable(ADMIN_TIMELOCK));
@@ -33,9 +33,16 @@ contract ExecuteForcedTransferRoleToTimelock is Script {
 
         (address[] memory targets, uint256[] memory values, bytes[] memory payloads) = _buildBatch();
         bytes32 id = timelock.hashOperationBatch(targets, values, payloads, NO_PREDECESSOR, SALT);
+        bytes memory executeCalldata =
+            abi.encodeCall(timelock.executeBatch, (targets, values, payloads, NO_PREDECESSOR, SALT));
 
         console.log("Operation id:");
         console.logBytes32(id);
+        console.log("--- executeBatch() call ---");
+        console.log("To:", ADMIN_TIMELOCK);
+        console.log("Value: 0");
+        console.log("Data:");
+        console.logBytes(executeCalldata);
 
         require(timelock.isOperationReady(id), "operation not ready: never scheduled or delay pending");
 

@@ -89,7 +89,7 @@ execute-zero-m-asset-cap: RPC_URL=$(MAINNET_RPC_URL)
 execute-zero-m-asset-cap:
 	forge script script/PYUSDx_Cleanup/ExecuteZeroMAssetCap.s.sol:ExecuteZeroMAssetCap \
 	--rpc-url $(RPC_URL) \
-	--private-key $(DEPLOYER_KEY) \
+	--private-key $(PRIVATE_KEY) \
 	--skip test --slow --non-interactive --broadcast
 
 # SENTORA ROLE CLEANUP
@@ -113,9 +113,16 @@ propose-forced-transfer-role:
 	--skip test --slow --non-interactive --broadcast \
 	--rpc-timeout 1800 --timeout 600
 
+execute-forced-transfer-role-calldata: RPC_URL=$(MAINNET_RPC_URL)
+execute-forced-transfer-role-calldata:
+	forge script script/Sentora_Cleanup/ExecuteForcedTransferRoleToTimelock.s.sol:ExecuteForcedTransferRoleToTimelock \
+	--rpc-url $(RPC_URL) \
+	--sender $(PROPOSER_ADDRESS) \
+	--skip test --slow --non-interactive
+
 execute-forced-transfer-role: RPC_URL=$(MAINNET_RPC_URL)
 execute-forced-transfer-role:
 	forge script script/Sentora_Cleanup/ExecuteForcedTransferRoleToTimelock.s.sol:ExecuteForcedTransferRoleToTimelock \
 	--rpc-url $(RPC_URL) \
-	--private-key $(DEPLOYER_KEY) \
+	--private-key $(PRIVATE_KEY) \
 	--skip test --slow --non-interactive --broadcast
