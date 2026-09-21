@@ -18,7 +18,7 @@ contract ProposeForcedTransferRoleToTimelock is Script {
 
     /// @dev This operation has no dependency on another timelock operation.
     bytes32 constant NO_PREDECESSOR = bytes32(0);
-    bytes32 constant SALT = keccak256("USDat.FORCED_TRANSFER_MANAGER_ROLE.admin-timelock");
+    bytes32 constant SALT = bytes32(0);
 
     function run() public {
         TimelockController timelock = TimelockController(payable(ADMIN_TIMELOCK));

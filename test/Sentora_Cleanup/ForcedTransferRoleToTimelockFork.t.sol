@@ -46,7 +46,7 @@ contract ForcedTransferRoleToTimelockForkTest is Test {
     bytes32 constant WHITELIST_MANAGER_ROLE = keccak256("WHITELIST_MANAGER_ROLE");
 
     bytes32 constant NO_PREDECESSOR = bytes32(0);
-    bytes32 constant SALT = keccak256("USDat.FORCED_TRANSFER_MANAGER_ROLE.admin-timelock");
+    bytes32 constant SALT = bytes32(0);
 
     IAccessControl internal usdat = IAccessControl(USDAT_PROXY);
     TimelockController internal timelock = TimelockController(payable(ADMIN_TIMELOCK));
